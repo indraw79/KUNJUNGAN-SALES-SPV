@@ -1,9 +1,7 @@
-import { kv } from '@vercel/kv';
+import { Redis } from '@upstash/redis';
 
-// Simple key-value API backing the sales tracker app.
-// GET  /api/kv?key=xxx        -> { key, value }
-// POST /api/kv?key=xxx  body: { value }  -> { key, value }
-// Only a small whitelist of keys is allowed, to keep this endpoint from being used as an open KV proxy.
+const redis = Redis.fromEnv();
+
 const ALLOWED_KEYS = ['sft-visits-v1', 'sft-stores-v1', 'sft-users-v1'];
 
 export default async function handler(req, res) {
@@ -15,7 +13,7 @@ export default async function handler(req, res) {
 
   try {
     if (req.method === 'GET') {
-      const value = await kv.get(key);
+      const value = await redis.get(key);
       if (value === null || value === undefined) {
         res.status(404).json({ error: 'not found' });
         return;
@@ -27,7 +25,7 @@ export default async function handler(req, res) {
     if (req.method === 'POST') {
       const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
       const value = body && body.value;
-      await kv.set(key, value);
+      await redis.set(key, value);
       res.status(200).json({ key, value });
       return;
     }
