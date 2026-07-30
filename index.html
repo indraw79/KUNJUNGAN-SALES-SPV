@@ -1,0 +1,998 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Absensi Sales Lapangan</title>
+<style>
+  :root{
+    --bg:#F7F5F1; --surface:#FFFFFF; --primary:#1B3A34; --primary-dark:#142B27;
+    --accent:#E08D3C; --accent-dark:#CB7B2E; --success:#4A7C59; --success-bg:#4A7C5920;
+    --danger:#C1502E; --danger-bg:#C1502E20; --border:#E4E0D8; --muted:#8C8676; --text:#21201C;
+    --chip-bg:#EFEBE2;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-tap-highlight-color:transparent;}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;}
+  .display{font-weight:700;}
+  input,select,textarea,button{font-family:inherit;font-size:14px;}
+  button{cursor:pointer;}
+  .screen{min-height:100vh;}
+  .header{background:var(--primary);padding:24px 20px 32px;border-radius:0 0 28px 28px;color:#fff;}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:14px;}
+  .card2{background:var(--surface);border:1px solid var(--border);border-radius:16px;overflow:hidden;}
+  .btn{border:none;border-radius:12px;padding:12px 16px;font-weight:600;font-size:14px;display:inline-flex;align-items:center;justify-content:center;gap:6px;}
+  .btn-accent{background:var(--accent);color:#fff;}
+  .btn-accent:disabled{opacity:.45;}
+  .btn-dark{background:var(--primary);color:#fff;}
+  .btn-outline{background:#fff;border:1px solid var(--border);color:var(--muted);}
+  .btn-ghost{background:rgba(255,255,255,.1);color:#fff;}
+  .btn-danger{background:var(--danger);color:#fff;}
+  .btn-sm{padding:8px 12px;font-size:12px;border-radius:10px;}
+  .input{width:100%;padding:10px 12px;border-radius:12px;border:1px solid var(--border);background:#fff;font-size:14px;}
+  .input:focus{outline:2px solid #1B3A3440;border-color:var(--primary);}
+  .input-dark{border:none;background:rgba(255,255,255,.95);}
+  label.lbl{display:block;font-size:12px;font-weight:500;color:#5B564C;margin-bottom:6px;}
+  .badge{display:inline-flex;align-items:center;gap:3px;padding:2px 9px;border-radius:999px;font-size:11px;font-weight:600;}
+  .badge-active{background:#E08D3C26;color:#B8681F;border:1px solid #E08D3C66;}
+  .badge-done{background:var(--success-bg);color:#2F5B3B;border:1px solid #4A7C5950;}
+  .badge-warn{background:var(--danger-bg);color:var(--danger);border:1px solid #C1502E55;}
+  .badge-neutral{background:var(--chip-bg);color:#5B564C;}
+  .chip{padding:7px 13px;border-radius:999px;font-size:12px;font-weight:500;border:1px solid var(--border);background:#fff;color:#5B564C;}
+  .chip.active{background:var(--primary);color:#fff;border-color:var(--primary);}
+  .row{display:flex;align-items:center;}
+  .between{justify-content:space-between;}
+  .gap8{gap:8px;} .gap6{gap:6px;} .gap4{gap:4px;} .gap12{gap:12px;}
+  .stack{display:flex;flex-direction:column;}
+  .p20{padding:0 20px;} .mt-4{margin-top:-16px;}
+  .muted{color:var(--muted);}
+  .small{font-size:12px;}
+  .xs{font-size:11px;}
+  .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;}
+  .grid2{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;}
+  a{color:var(--primary);}
+  .spin{animation:spin 1s linear infinite;display:inline-block;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+  .center-screen{min-height:100vh;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:10px;padding:24px;text-align:center;}
+  .timer{font-size:30px;font-weight:700;color:#fff;}
+  .icon{width:15px;height:15px;display:inline-block;vertical-align:-2px;}
+  .dot{width:8px;height:8px;border-radius:999px;flex-shrink:0;}
+  .tabs{display:inline-flex;gap:4px;background:#fff;padding:4px;border-radius:999px;border:1px solid var(--border);}
+  .tabs.dark{background:rgba(255,255,255,.1);border:none;}
+  .tab-btn{padding:7px 14px;border:none;background:transparent;border-radius:999px;font-size:12px;font-weight:500;color:#5B564C;}
+  .tab-btn.active{background:var(--primary);color:#fff;}
+  .tabs.dark .tab-btn{color:rgba(255,255,255,.7);}
+  .tabs.dark .tab-btn.active{background:#fff;color:var(--primary);}
+  .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.4);display:flex;align-items:flex-end;justify-content:center;z-index:50;}
+  .modal-sheet{background:var(--bg);width:100%;max-width:480px;border-radius:20px 20px 0 0;max-height:92vh;overflow-y:auto;}
+  .sticky-top{position:sticky;top:0;background:var(--bg);border-bottom:1px solid var(--border);padding:16px 20px;}
+  .sticky-bottom{position:sticky;bottom:0;background:var(--bg);border-top:1px solid var(--border);padding:14px 16px;display:flex;gap:8px;}
+  .link{color:var(--primary);text-decoration:underline;font-size:12px;}
+  .divider{height:1px;background:#EFEBE2;}
+  .timeline{position:relative;padding-left:20px;}
+  .timeline::before{content:'';position:absolute;left:7px;top:8px;bottom:8px;width:1px;background:var(--border);}
+  .timeline-dot{position:absolute;left:-20px;top:4px;width:14px;height:14px;border-radius:999px;border:2px solid var(--bg);}
+</style>
+</head>
+<body>
+<div id="app"><div class="center-screen"><span class="muted xs mono">Memuat...</span></div></div>
+<script>
+(function(){
+'use strict';
+
+/* ---------------- constants & storage ---------------- */
+var VISITS_KEY='sft-visits-v1', STORES_KEY='sft-stores-v1', USERS_KEY='sft-users-v1', DEFAULT_RADIUS=100;
+
+function withTimeout(p, ms){ ms = ms || 15000;
+  return Promise.race([p, new Promise(function(_,rej){ setTimeout(function(){ rej(new Error('Waktu tunggu server habis')); }, ms); })]);
+}
+function apiGet(key){
+  return fetch('/api/kv?key='+encodeURIComponent(key)).then(function(res){
+    if(res.status===404) return null;
+    if(!res.ok) throw new Error('Gagal memuat data dari server (status '+res.status+')');
+    return res.json().then(function(data){ return data.value; });
+  });
+}
+function apiSet(key, value){
+  return fetch('/api/kv?key='+encodeURIComponent(key), {
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({value:value})
+  }).then(function(res){
+    if(!res.ok) throw new Error('Gagal menyimpan data ke server (status '+res.status+')');
+    return res.json();
+  });
+}
+
+function loadVisits(){
+  return withTimeout(apiGet(VISITS_KEY)).then(function(v){ return v || []; })
+    .catch(function(e){ if(e && e.message==='Waktu tunggu server habis') throw e; return []; });
+}
+function saveVisits(v){ return withTimeout(apiSet(VISITS_KEY, v)).catch(function(e){ console.error('gagal simpan visits', e); throw e; }); }
+function loadStores(){
+  return withTimeout(apiGet(STORES_KEY)).then(function(v){ return v || {}; }).catch(function(){ return {}; });
+}
+function saveStores(s){ return withTimeout(apiSet(STORES_KEY, s)).catch(function(e){ console.error('gagal simpan stores', e); throw e; }); }
+function loadUsers(){
+  return withTimeout(apiGet(USERS_KEY)).then(function(v){ return v || {}; })
+    .catch(function(e){ if(e && e.message==='Waktu tunggu server habis') throw e; return {}; });
+}
+function saveUsers(u){ return withTimeout(apiSet(USERS_KEY, u)).catch(function(e){ console.error('gagal simpan users', e); throw e; }); }
+
+/* ---------------- helpers ---------------- */
+function rp(n){ return 'Rp ' + Math.round(n||0).toLocaleString('id-ID'); }
+function fmtTime(iso){ return iso ? new Date(iso).toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'}) : '-'; }
+function fmtDate(iso){ return iso ? new Date(iso).toLocaleDateString('id-ID',{day:'2-digit',month:'short',year:'numeric'}) : '-'; }
+function fmtDateShort(iso){ return iso ? new Date(iso).toLocaleDateString('id-ID',{weekday:'short',day:'2-digit',month:'short'}) : '-'; }
+function isToday(iso){ if(!iso) return false; var d=new Date(iso), t=new Date(); return d.getDate()===t.getDate() && d.getMonth()===t.getMonth() && d.getFullYear()===t.getFullYear(); }
+function startOfWeek(base){ var d=new Date(base); var day=d.getDay(); var diff=d.getDate()-day+(day===0?-6:1); d.setDate(diff); d.setHours(0,0,0,0); return d; }
+function isInRange(iso, filter, s, e){
+  var d=new Date(iso);
+  if(filter==='today') return isToday(iso);
+  if(filter==='week') return d>=startOfWeek(new Date());
+  if(filter==='month'){ var now=new Date(); return d.getFullYear()===now.getFullYear() && d.getMonth()===now.getMonth(); }
+  if(filter==='all') return true;
+  if(filter==='custom'){ if(!s||!e) return true; return d>=new Date(s+'T00:00:00') && d<=new Date(e+'T23:59:59'); }
+  return true;
+}
+function durationLabel(m){ if(m==null) return '-'; var h=Math.floor(m/60), mm=Math.round(m%60); return h>0 ? (h+' jam '+mm+' mnt') : (mm+' mnt'); }
+function distLabel(m){ return m<1000 ? (Math.round(m)+' m') : ((m/1000).toFixed(1)+' km'); }
+function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,8); }
+function orderTotalOf(v){ return (v.orders||[]).reduce(function(s,o){ return s+o.qty*o.price; },0); }
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+function showToast(message, isError){
+  var existing = document.getElementById('sft-toast');
+  if(existing && existing.parentNode) existing.parentNode.removeChild(existing);
+  var toast = document.createElement('div');
+  toast.id = 'sft-toast';
+  toast.textContent = message;
+  toast.style.cssText = 'position:fixed;left:50%;bottom:24px;transform:translateX(-50%);max-width:88%;background:' +
+    (isError ? '#C1502E' : '#1B3A34') +
+    ';color:#fff;padding:13px 18px;border-radius:12px;font-size:13px;line-height:1.4;z-index:99999;' +
+    'box-shadow:0 6px 20px rgba(0,0,0,.25);text-align:center;';
+  document.body.appendChild(toast);
+  setTimeout(function(){ if(toast.parentNode) toast.parentNode.removeChild(toast); }, 7000);
+}
+function alertSaveError(e){ showToast('Gagal menyimpan: ' + (e && e.message ? e.message : 'terjadi kesalahan') + '. Periksa koneksi internet Anda lalu coba lagi.', true); }
+
+function haversineMeters(lat1,lng1,lat2,lng2){
+  var R=6371000; function toRad(d){ return d*Math.PI/180; }
+  var dLat=toRad(lat2-lat1), dLng=toRad(lng2-lng1);
+  var a=Math.sin(dLat/2)*Math.sin(dLat/2)+Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLng/2)*Math.sin(dLng/2);
+  return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+}
+function getPosition(){
+  return new Promise(function(resolve){
+    if(!navigator.geolocation){ resolve({error:'Perangkat tidak mendukung GPS'}); return; }
+    navigator.geolocation.getCurrentPosition(
+      function(p){ resolve({lat:p.coords.latitude, lng:p.coords.longitude}); },
+      function(err){ resolve({error: err.message || 'Gagal mengambil lokasi'}); },
+      {enableHighAccuracy:true, timeout:10000}
+    );
+  });
+}
+function sha256Hex(str){
+  var enc=new TextEncoder().encode(str);
+  return crypto.subtle.digest('SHA-256', enc).then(function(buf){
+    return Array.from(new Uint8Array(buf)).map(function(b){ return b.toString(16).padStart(2,'0'); }).join('');
+  });
+}
+function hashPassword(key, pw){ return sha256Hex(key+':'+pw+':sft-salt-v1'); }
+
+function exportCSV(visits, filenamePrefix){
+  var headers=['Tanggal','Sales','Toko','Jam Masuk','Jam Keluar','Durasi (menit)','Status Lokasi','Alasan Override','Jumlah Item Order','Nilai Order (Rp)','Pembayaran Diterima (Rp)','Catatan'];
+  var rows = visits.slice().sort(function(a,b){ return new Date(a.checkinTime)-new Date(b.checkinTime); }).map(function(v){
+    return [
+      fmtDate(v.checkinTime), v.salesName, v.storeName, fmtTime(v.checkinTime), v.checkoutTime?fmtTime(v.checkoutTime):'',
+      v.durationMinutes!=null?Math.round(v.durationMinutes):'', v.checkinOutOfRadius?('Luar radius ('+Math.round(v.checkinDistanceMeters||0)+'m)'):'Normal',
+      v.checkinOverrideReason||'', (v.orders||[]).length, orderTotalOf(v), v.payment||0, v.notes||''
+    ];
+  });
+  downloadRowsAsCSV(headers, rows, filenamePrefix+'-'+new Date().toISOString().slice(0,10)+'.csv');
+}
+function csvEscapeField(val){ var s=String(val==null?'':val); return /[",\n]/.test(s) ? ('"'+s.replace(/"/g,'""')+'"') : s; }
+function downloadRowsAsCSV(headers, rows, filename){
+  var csv = [headers].concat(rows).map(function(r){ return r.map(csvEscapeField).join(','); }).join('\r\n');
+  var blob = new Blob(['\uFEFF'+csv], {type:'text/csv;charset=utf-8;'});
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(function(){ URL.revokeObjectURL(url); }, 2000);
+}
+function parseCSV(text){
+  var rows=[], row=[], field='', inQuotes=false;
+  for(var i=0;i<text.length;i++){
+    var c=text[i];
+    if(inQuotes){
+      if(c==='"'){ if(text[i+1]==='"'){ field+='"'; i++; } else { inQuotes=false; } }
+      else { field+=c; }
+    } else {
+      if(c==='"'){ inQuotes=true; }
+      else if(c===','){ row.push(field); field=''; }
+      else if(c==='\n'){ row.push(field); rows.push(row); row=[]; field=''; }
+      else if(c==='\r'){ /* skip */ }
+      else { field+=c; }
+    }
+  }
+  if(field.length>0 || row.length>0){ row.push(field); rows.push(row); }
+  return rows;
+}
+function downloadUserTemplateCSV(){
+  var headers=['Nama Lengkap','Username','Password','Role (sales/supervisor/owner)'];
+  var example=[
+    ['Budi Santoso','budi.sales','budi1234','sales'],
+    ['Siti Aminah','siti.sales','siti1234','sales']
+  ];
+  downloadRowsAsCSV(headers, example, 'template-user-sales.csv');
+}
+function handleImportUsersFile(file){
+  if(!file) return;
+  var reader = new FileReader();
+  reader.onload = function(e){
+    var rows = parseCSV(String(e.target.result||'')).filter(function(r){ return r.some(function(c){ return c && c.trim(); }); });
+    if(rows.length<2){ showToast('File CSV kosong atau formatnya tidak sesuai. Gunakan template yang disediakan.', true); return; }
+    var dataRows = rows.slice(1);
+    var validRoles = {sales:1, supervisor:1, owner:1};
+    var seenKeys = {}, toCreate = [], skipped = 0;
+    dataRows.forEach(function(r){
+      var name=(r[0]||'').trim();
+      var user=(r[1]||'').trim();
+      var pass=(r[2]||'').trim();
+      var role=(r[3]||'').trim().toLowerCase();
+      if(!validRoles[role]) role='sales';
+      var key=user.toLowerCase();
+      if(!name || !key || pass.length<4){ skipped++; return; }
+      if(S.users[key] || seenKeys[key]){ skipped++; return; }
+      seenKeys[key]=true;
+      toCreate.push({key:key, name:name, pass:pass, role:role});
+    });
+    if(toCreate.length===0){
+      showToast('Tidak ada baris valid untuk diimpor. Pastikan Nama, Username, Password (min 4 karakter) terisi, dan username belum dipakai.', true);
+      return;
+    }
+    Promise.all(toCreate.map(function(u){
+      return hashPassword(u.key, u.pass).then(function(hash){ return {key:u.key, hash:hash, name:u.name, role:u.role}; });
+    })).then(function(results){
+      var users = Object.assign({}, S.users);
+      results.forEach(function(r){
+        users[r.key] = {username:r.key, displayName:r.name, passwordHash:r.hash, role:r.role, active:true, createdAt:new Date().toISOString()};
+      });
+      return saveUsers(users).then(function(){
+        S.users = users;
+        setState({errorMsg:''});
+        showToast('✓ Berhasil impor '+results.length+' akun.' + (skipped>0 ? (' '+skipped+' baris dilewati (kosong/duplikat/password kurang dari 4 karakter).') : ''), false);
+      });
+    }).catch(alertSaveError);
+  };
+  reader.onerror = function(){ showToast('Gagal membaca file. Coba lagi.', true); };
+  reader.readAsText(file, 'UTF-8');
+}
+
+/* ---------------- state ---------------- */
+var S = {
+  screen:'loading', errorMsg:'',
+  session:null,
+  visits:[],
+  storeNames:[],
+  salesTab:'home',
+  checkinStage:'idle', gpsError:'', busy:false,
+  outOfRadius:null,
+  orderFormOpen:false, orderItems:[], orderNotes:'',
+  riwayatFilter:'week', riwayatStart:'', riwayatEnd:'',
+  dashTab:'visits', dashFilter:'today', dashStart:'', dashEnd:'', expandedSales:null,
+  storeRadiusDrafts:{},
+  users:{}, resetKey:null,
+  setupDraft:{},
+  timerHandle:null
+};
+function setState(patch){ Object.assign(S, patch); render(); }
+
+/* ---------------- shared badges/atoms as HTML strings ---------------- */
+function badge(text, tone){
+  var cls = {active:'badge-active', done:'badge-done', warn:'badge-warn', neutral:'badge-neutral'}[tone||'neutral'];
+  return '<span class="badge '+cls+' mono">'+esc(text)+'</span>';
+}
+function statCard(label, value, sub){
+  return '<div class="card stack gap4"><div class="row gap6 xs muted" style="text-transform:uppercase;letter-spacing:.03em;">'+esc(label)+'</div>' +
+    '<div class="display" style="font-size:20px;color:var(--primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+value+'</div>' +
+    (sub ? '<div class="xs muted mono">'+esc(sub)+'</div>' : '') + '</div>';
+}
+function filterChipsHTML(prefix, current, start, end){
+  var opts=[['today','Hari ini'],['week','Minggu ini'],['month','Bulan ini'],['all','Semua'],['custom','Custom']];
+  var chips = opts.map(function(o){ return '<button class="chip '+(current===o[0]?'active':'')+'" data-action="setFilter" data-prefix="'+prefix+'" data-val="'+o[0]+'">'+o[1]+'</button>'; }).join('');
+  var customRow = current==='custom' ? (
+    '<div class="row gap8" style="margin-top:8px;">' +
+    '<input type="date" class="input mono xs" style="width:auto;padding:7px 10px;" id="'+prefix+'Start" value="'+(start||'')+'" data-action="setDateRange" data-prefix="'+prefix+'" data-which="start">' +
+    '<span class="muted xs">s/d</span>' +
+    '<input type="date" class="input mono xs" style="width:auto;padding:7px 10px;" id="'+prefix+'End" value="'+(end||'')+'" data-action="setDateRange" data-prefix="'+prefix+'" data-which="end">' +
+    '</div>'
+  ) : '';
+  return '<div class="row gap6" style="flex-wrap:wrap;margin-bottom:8px;">'+chips+'</div>'+customRow;
+}
+function dailySummaryHTML(visits){
+  var byDate={};
+  visits.forEach(function(v){
+    var key=new Date(v.checkinTime).toISOString().slice(0,10);
+    if(!byDate[key]) byDate[key]={count:0,order:0,payment:0,iso:v.checkinTime};
+    byDate[key].count+=1; byDate[key].order+=orderTotalOf(v); byDate[key].payment+=(v.payment||0);
+  });
+  var days=Object.keys(byDate).map(function(k){ return [k, byDate[k]]; }).sort(function(a,b){ return b[0].localeCompare(a[0]); });
+  if(days.length===0) return '';
+  var maxPay=Math.max.apply(null, days.map(function(d){ return d[1].payment; }).concat([1]));
+  var rows = days.map(function(d){
+    var pct = Math.max(4,(d[1].payment/maxPay)*100);
+    return '<div class="row gap12" style="margin-bottom:9px;">' +
+      '<span class="xs mono muted" style="width:88px;flex-shrink:0;">'+esc(fmtDateShort(d[1].iso))+'</span>' +
+      '<div style="flex:1;height:6px;background:var(--chip-bg);border-radius:999px;overflow:hidden;"><div style="height:100%;background:var(--accent);border-radius:999px;width:'+pct+'%;"></div></div>' +
+      '<span class="xs mono" style="width:34px;text-align:right;flex-shrink:0;">'+d[1].count+'x</span>' +
+      '<span class="xs mono" style="width:90px;text-align:right;flex-shrink:0;color:#2F5B3B;">'+rp(d[1].payment)+'</span>' +
+      '</div>';
+  }).join('');
+  return '<div class="card" style="margin-bottom:16px;"><h4 class="xs muted" style="text-transform:uppercase;letter-spacing:.03em;margin:0 0 12px;">Ringkasan harian</h4>'+rows+'</div>';
+}
+function visitRowHTML(v, showSales, openId){
+  var open = openId===v.id;
+  var total=orderTotalOf(v);
+  var mapsLink = v.checkinLat ? ('https://www.google.com/maps?q='+v.checkinLat+','+v.checkinLng) : null;
+  var dotColor = v.status==='active' ? 'var(--accent)' : (v.checkinOutOfRadius ? 'var(--danger)' : 'var(--success)');
+  var head = '<button class="row gap8" data-action="toggleVisit" data-id="'+v.id+'" style="width:100%;text-align:left;border:none;background:none;padding:14px;">' +
+    '<span class="dot" style="background:'+dotColor+';"></span>' +
+    '<div style="flex:1;min-width:0;">' +
+      '<div class="row gap6" style="flex-wrap:wrap;">' +
+        '<span style="font-weight:600;font-size:14px;">'+esc(v.storeName)+'</span>' +
+        (v.checkinOutOfRadius ? badge('⚠ luar radius','warn') : '') +
+        badge(v.status==='active'?'Berlangsung':'Selesai', v.status==='active'?'active':'done') +
+      '</div>' +
+      '<div class="xs muted mono" style="margin-top:2px;">' + (showSales?esc(v.salesName)+' · ':'') + esc(fmtDate(v.checkinTime))+' · '+fmtTime(v.checkinTime)+'–'+(v.checkoutTime?fmtTime(v.checkoutTime):'...')+' · '+durationLabel(v.durationMinutes) +
+      '</div>' +
+    '</div>' +
+    '<span class="mono xs" style="font-weight:600;color:var(--primary);flex-shrink:0;">'+rp(v.payment)+'</span>' +
+    '</button>';
+  var detail='';
+  if(open){
+    detail += '<div style="padding:0 14px 14px;border-top:1px solid #EFEBE2;">';
+    detail += '<div class="grid2 xs" style="padding-top:12px;">';
+    detail += '<div><div class="muted" style="margin-bottom:2px;">Lokasi check-in</div>' + (mapsLink ? ('<a class="mono" href="'+mapsLink+'" target="_blank" rel="noreferrer">'+v.checkinLat.toFixed(4)+', '+v.checkinLng.toFixed(4)+'</a>') : '<span class="muted">-</span>') + (v.checkinDistanceMeters!=null ? ('<div class="muted" style="margin-top:2px;">'+distLabel(v.checkinDistanceMeters)+' dari titik acuan</div>') : '') + '</div>';
+    detail += '<div><div class="muted" style="margin-bottom:2px;">Tanggal</div><span class="mono">'+esc(fmtDate(v.checkinTime))+'</span></div>';
+    detail += '</div>';
+    if(v.checkinOutOfRadius && v.checkinOverrideReason){
+      detail += '<div style="background:var(--danger-bg);border:1px solid #C1502E40;border-radius:10px;padding:10px;margin-top:10px;"><div class="xs" style="color:var(--danger);font-weight:600;margin-bottom:2px;">⚠ Alasan override lokasi</div><p class="xs" style="margin:0;">'+esc(v.checkinOverrideReason)+'</p></div>';
+    }
+    if((v.orders||[]).length>0){
+      detail += '<div style="margin-top:10px;"><div class="xs muted" style="margin-bottom:6px;">Order ('+v.orders.length+' item · '+rp(total)+')</div>';
+      detail += v.orders.map(function(o){ return '<div class="row between xs" style="background:var(--bg);border-radius:8px;padding:7px 10px;margin-bottom:4px;"><span>'+esc(o.product)+' × '+o.qty+'</span><span class="mono">'+rp(o.qty*o.price)+'</span></div>'; }).join('');
+      detail += '</div>';
+    }
+    if(v.notes){ detail += '<div style="margin-top:10px;"><div class="xs muted" style="margin-bottom:2px;">Catatan</div><p class="xs" style="margin:0;">'+esc(v.notes)+'</p></div>'; }
+    detail += '</div>';
+  }
+  return '<div class="card2" style="margin-bottom:8px;">'+head+detail+'</div>';
+}
+
+/* ---------------- SETUP / LOGIN screens ---------------- */
+function screenSetup(){
+  return '<div class="center-screen" style="align-items:stretch;text-align:left;">' +
+    '<div style="max-width:380px;margin:0 auto;width:100%;">' +
+    '<div class="row gap8" style="margin-bottom:4px;"><div style="width:32px;height:32px;border-radius:10px;background:var(--primary);display:flex;align-items:center;justify-content:center;color:var(--accent);font-weight:700;">🛡</div><span class="mono xs muted" style="text-transform:uppercase;letter-spacing:.08em;">Setup Awal</span></div>' +
+    '<h1 class="display" style="font-size:22px;color:var(--primary);margin:0 0 4px;">Buat akun Owner pertama</h1>' +
+    '<p class="muted small" style="margin:0 0 20px;">Akun ini bisa membuat akun Supervisor & Sales lainnya nanti.</p>' +
+    '<div class="stack gap12">' +
+      '<div><label class="lbl">Nama lengkap</label><input class="input" id="su_name" placeholder="cth. Andi Wijaya" value="'+esc(S.setupDraft.name||'')+'"></div>' +
+      '<div><label class="lbl">Username</label><input class="input" id="su_user" placeholder="cth. andi.owner" autocapitalize="off" value="'+esc(S.setupDraft.user||'')+'"></div>' +
+      '<div><label class="lbl">Password</label><input class="input" id="su_pass" type="password" placeholder="Minimal 4 karakter"></div>' +
+      '<div><label class="lbl">Konfirmasi password</label><input class="input" id="su_pass2" type="password" placeholder="Ulangi password"></div>' +
+      (S.errorMsg ? '<div class="small" style="color:var(--danger);">⚠ '+esc(S.errorMsg)+'</div>' : '') +
+      '<button class="btn btn-accent" style="width:100%;" data-action="submitSetup" '+(S.busy?'disabled':'')+'>'+(S.busy?'Memproses...':'Buat akun & masuk')+'</button>' +
+    '</div></div></div>';
+}
+function screenLogin(){
+  return '<div class="center-screen" style="align-items:stretch;text-align:left;">' +
+    '<div style="max-width:380px;margin:0 auto;width:100%;">' +
+    '<div class="row gap8" style="margin-bottom:4px;"><div style="width:32px;height:32px;border-radius:10px;background:var(--primary);display:flex;align-items:center;justify-content:center;color:var(--accent);">📍</div><span class="mono xs muted" style="text-transform:uppercase;letter-spacing:.08em;">Rute Harian</span></div>' +
+    '<h1 class="display" style="font-size:26px;color:var(--primary);margin:0 0 4px;">Masuk</h1>' +
+    '<p class="muted small" style="margin:0 0 20px;">Gunakan akun yang diberikan atasan Anda.</p>' +
+    '<div class="stack gap12">' +
+      '<div><label class="lbl">Username</label><input class="input" id="li_user" placeholder="cth. budi.sales" autocapitalize="off"></div>' +
+      '<div><label class="lbl">Password</label><input class="input" id="li_pass" type="password" placeholder="Password"></div>' +
+      (S.errorMsg ? '<div class="small" style="color:var(--danger);">⚠ '+esc(S.errorMsg)+'</div>' : '') +
+      '<button class="btn btn-accent" style="width:100%;" data-action="submitLogin" '+(S.busy?'disabled':'')+'>'+(S.busy?'Memproses...':'Masuk')+'</button>' +
+    '</div>' +
+    '<p class="muted xs" style="text-align:center;margin-top:24px;">Belum punya akun? Minta supervisor/owner membuatkan di menu "Kelola User".</p>' +
+    '</div></div>';
+}
+
+/* ---------------- SALES screen ---------------- */
+function myVisits(){ return S.visits.filter(function(v){ return v.salesName===S.session.name; }); }
+function screenSales(){
+  var mv = myVisits();
+  var active = mv.filter(function(v){ return v.status==='active'; })[0];
+  var todays = mv.filter(function(v){ return isToday(v.checkinTime); }).sort(function(a,b){ return new Date(b.checkinTime)-new Date(a.checkinTime); });
+  var riwayat = mv.filter(function(v){ return v.status==='done' && isInRange(v.checkinTime, S.riwayatFilter, S.riwayatStart, S.riwayatEnd); }).sort(function(a,b){ return new Date(b.checkinTime)-new Date(a.checkinTime); });
+  var todayOrder = todays.reduce(function(s,v){ return s+orderTotalOf(v); },0);
+  var todayPay = todays.reduce(function(s,v){ return s+(v.payment||0); },0);
+
+  var headerInner;
+  if(active){
+    headerInner = '<div class="xs mono" style="color:rgba(255,255,255,.6);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">📍 Sedang di '+esc(active.storeName)+'</div>' +
+      '<div class="timer" id="liveTimer" data-start="'+active.checkinTime+'">00:00</div>' +
+      '<div class="xs mono" style="color:rgba(255,255,255,.5);margin-top:4px;">Masuk '+fmtTime(active.checkinTime)+'</div>' +
+      '<button class="btn btn-accent" style="width:100%;margin-top:16px;" data-action="openOrderForm" '+(S.busy?'disabled':'')+'>Selesai Kunjungan</button>';
+  } else if(S.checkinStage==='outOfRadius' && S.outOfRadius){
+    var o=S.outOfRadius;
+    headerInner = '<div style="background:rgba(193,80,46,.2);border:1px solid rgba(193,80,46,.4);border-radius:12px;padding:14px;margin-bottom:12px;">' +
+      '<div class="xs" style="color:#F3C6A8;font-weight:600;margin-bottom:4px;">⚠ Di luar radius toko</div>' +
+      '<p style="color:#fff;font-size:14px;margin:0;line-height:1.4;">Anda <span class="mono" style="font-weight:600;">'+distLabel(o.distance)+'</span> dari lokasi terdaftar <b>'+esc(o.storeName)+'</b> (radius '+distLabel(o.radius)+').</p></div>' +
+      '<button class="btn btn-ghost" style="width:100%;margin-bottom:12px;" data-action="retryCheckin" '+(S.busy?'disabled':'')+'>📍 Ambil ulang lokasi</button>' +
+      '<label class="lbl" style="color:rgba(255,255,255,.7);">Alasan tetap check-in (wajib)</label>' +
+      '<textarea class="input input-dark" id="overrideReason" rows="2" placeholder="cth. GPS meleset, toko pindah unit sebelah, dsb."></textarea>' +
+      '<div class="row gap8" style="margin-top:8px;">' +
+        '<button class="btn btn-ghost" style="flex:1;" data-action="cancelCheckin">Batal</button>' +
+        '<button class="btn btn-danger" style="flex:1;" data-action="confirmOverride" '+(S.busy?'disabled':'')+'>Tetap Check-in</button>' +
+      '</div>';
+  } else if(S.checkinStage==='entering'){
+    headerInner = '<label class="lbl" style="color:rgba(255,255,255,.7);">Nama toko</label>' +
+      '<input class="input input-dark" id="storeNameInput" list="storeSuggestions" placeholder="cth. Toko Sumber Jaya" autofocus>' +
+      '<datalist id="storeSuggestions">' + S.storeNames.map(function(n){ return '<option value="'+esc(n)+'">'; }).join('') + '</datalist>' +
+      '<p class="xs" style="color:rgba(255,255,255,.4);margin:6px 0 0;">Toko baru akan mendaftarkan lokasi GPS saat ini sebagai titik acuan.</p>' +
+      (S.gpsError ? '<div class="xs" style="color:#F3C6A8;margin-top:6px;">⚠ '+esc(S.gpsError)+'</div>' : '') +
+      '<div class="row gap8" style="margin-top:12px;">' +
+        '<button class="btn btn-ghost" style="flex:1;" data-action="cancelCheckin">Batal</button>' +
+        '<button class="btn btn-accent" style="flex:1;" data-action="attemptCheckin" '+(S.busy?'disabled':'')+'>'+(S.busy?'Memeriksa lokasi...':'📍 Check-in')+'</button>' +
+      '</div>';
+  } else {
+    headerInner = '<button class="btn btn-accent" style="width:100%;padding:16px;border-radius:16px;" data-action="startCheckin">📍 Mulai Kunjungan</button>';
+  }
+
+  var isSupervisor = S.session.role==='supervisor';
+  var roleLabelTxt = isSupervisor ? 'Supervisor' : 'Sales';
+  var html = '<div class="screen">';
+  if(S.orderFormOpen && active) html += orderFormModal(active);
+  html += '<div class="header">' +
+    '<div class="row between" style="margin-bottom:20px;">' +
+      '<div class="row gap8"><div style="width:32px;height:32px;border-radius:10px;background:rgba(255,255,255,.1);display:flex;align-items:center;justify-content:center;">👤</div><div><div style="font-weight:600;font-size:14px;">'+esc(S.session.name)+'</div><div class="xs mono" style="color:rgba(255,255,255,.5);">'+roleLabelTxt+' · @'+esc(S.session.username)+'</div></div></div>' +
+      '<div class="row gap4">' +
+        (isSupervisor ? '<button data-action="switchScreen" data-val="dashboard" class="btn btn-ghost btn-sm" style="font-size:11px;">📊 Dashboard Tim</button>' : '') +
+        '<button data-action="logout" style="background:none;border:none;color:rgba(255,255,255,.6);font-size:18px;padding:8px;">⏻</button>' +
+      '</div>' +
+    '</div>' +
+    '<div class="tabs dark" style="margin-bottom:20px;"><button class="tab-btn '+(S.salesTab==='home'?'active':'')+'" data-action="setSalesTab" data-val="home">Hari ini</button><button class="tab-btn '+(S.salesTab==='riwayat'?'active':'')+'" data-action="setSalesTab" data-val="riwayat">Riwayat</button></div>' +
+    (S.salesTab==='home' ? headerInner : '<p class="xs" style="color:rgba(255,255,255,.5);">Lihat riwayat kunjungan yang sudah selesai di bawah.</p>') +
+  '</div>';
+
+  if(S.salesTab==='home'){
+    html += '<div class="p20 mt-4 grid3" style="margin-bottom:24px;">' +
+      '<div class="card" style="text-align:center;padding:12px;"><div class="display" style="font-size:18px;color:var(--primary);">'+todays.length+'</div><div class="xs muted mono" style="text-transform:uppercase;margin-top:2px;">Kunjungan</div></div>' +
+      '<div class="card" style="text-align:center;padding:12px;"><div class="display" style="font-size:14px;color:var(--primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+rp(todayOrder)+'</div><div class="xs muted mono" style="text-transform:uppercase;margin-top:2px;">Order</div></div>' +
+      '<div class="card" style="text-align:center;padding:12px;"><div class="display" style="font-size:14px;color:var(--primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+rp(todayPay)+'</div><div class="xs muted mono" style="text-transform:uppercase;margin-top:2px;">Terbayar</div></div>' +
+    '</div>';
+    html += '<div class="p20" style="padding-bottom:40px;">';
+    html += '<h3 class="xs muted" style="text-transform:uppercase;letter-spacing:.03em;margin:0 0 12px;">🗺 Rute hari ini</h3>';
+    if(todays.length===0){ html += '<p class="small muted">Belum ada kunjungan hari ini.</p>'; }
+    else {
+      html += '<div class="timeline">';
+      html += todays.map(function(v){
+        var dotColor = v.status==='active'?'var(--accent)':(v.checkinOutOfRadius?'var(--danger)':'var(--success)');
+        var body = '<div class="row between gap6" style="flex-wrap:wrap;margin-bottom:4px;"><span style="font-weight:600;font-size:14px;">'+esc(v.storeName)+'</span><span class="row gap4">'+(v.checkinOutOfRadius?badge('⚠ luar radius','warn'):'')+badge(v.status==='active'?'Berlangsung':'Selesai', v.status==='active'?'active':'done')+'</span></div>' +
+          '<div class="xs muted mono">'+fmtTime(v.checkinTime)+' – '+(v.checkoutTime?fmtTime(v.checkoutTime):'...')+(v.durationMinutes!=null?(' · '+durationLabel(v.durationMinutes)):'')+'</div>' +
+          (v.status==='done' ? ('<div class="row gap12 xs" style="margin-top:8px;"><span class="muted">'+(v.orders||[]).length+' item order</span><span class="mono" style="color:#2F5B3B;">'+rp(v.payment)+' dibayar</span></div>') : '');
+        return '<div style="position:relative;margin-bottom:14px;"><span class="timeline-dot" style="background:'+dotColor+';"></span><div class="card">'+body+'</div></div>';
+      }).join('');
+      html += '</div>';
+    }
+    html += '</div>';
+  } else {
+    html += '<div class="p20" style="padding-top:20px;padding-bottom:40px;">';
+    html += filterChipsHTML('riwayat', S.riwayatFilter, S.riwayatStart, S.riwayatEnd);
+    html += '<button class="btn btn-dark btn-sm" style="margin:8px 0 16px;" data-action="exportRiwayat" '+(riwayat.length===0?'disabled':'')+'>⬇ Export CSV ('+riwayat.length+' kunjungan)</button>';
+    html += dailySummaryHTML(riwayat);
+    if(riwayat.length===0){ html += '<p class="small muted">Tidak ada kunjungan pada periode ini.</p>'; }
+    else { html += riwayat.map(function(v){ return visitRowHTML(v,false,S.expandedSales); }).join(''); }
+    html += '</div>';
+  }
+  html += '</div>';
+  return html;
+}
+
+function orderFormModal(active){
+  var items = S.orderItems;
+  var total = items.reduce(function(s,i){ return s+(Number(i.qty)||0)*(Number(i.price)||0); },0);
+  var rows = items.map(function(it, idx){
+    return '<div class="row gap6" style="background:#fff;border:1px solid var(--border);border-radius:12px;padding:8px;margin-bottom:8px;align-items:center;">' +
+      '<input class="input" style="flex:1;min-width:0;padding:8px 10px;" placeholder="Nama produk" value="'+esc(it.product)+'" data-order-field="product" data-idx="'+idx+'">' +
+      '<input type="number" min="1" class="input mono" style="width:56px;padding:8px 6px;text-align:center;" value="'+it.qty+'" data-order-field="qty" data-idx="'+idx+'">' +
+      '<input type="number" min="0" class="input mono" style="width:90px;padding:8px 6px;" placeholder="Harga" value="'+(it.price||'')+'" data-order-field="price" data-idx="'+idx+'">' +
+      (items.length>1 ? '<button data-action="removeOrderItem" data-idx="'+idx+'" style="background:none;border:none;color:var(--danger);padding:4px;">✕</button>' : '') +
+    '</div>';
+  }).join('');
+  return '<div class="modal-overlay" data-action="noop">' +
+    '<div class="modal-sheet">' +
+      '<div class="sticky-top row between">' +
+        '<div><div class="xs mono muted" style="text-transform:uppercase;">Selesai kunjungan</div><h2 class="display" style="font-size:17px;color:var(--primary);margin:2px 0 0;">'+esc(active.storeName)+'</h2></div>' +
+        '<button data-action="closeOrderForm" style="background:none;border:none;font-size:18px;color:var(--muted);">✕</button>' +
+      '</div>' +
+      '<div class="p20" style="padding:16px 20px;">' +
+        '<div class="row between" style="margin-bottom:8px;"><label class="lbl" style="margin:0;">📦 Order hari ini</label><button class="link" style="border:none;background:none;font-weight:600;" data-action="addOrderItem">+ Tambah item</button></div>' +
+        rows +
+        '<div class="xs mono muted" style="text-align:right;margin-bottom:16px;">Total order: <b style="color:var(--primary);">'+rp(total)+'</b></div>' +
+        '<label class="lbl">💰 Pembayaran nota diterima</label>' +
+        '<input type="number" min="0" class="input mono" id="orderPayment" placeholder="0" style="margin-bottom:16px;">' +
+        '<label class="lbl">Catatan (opsional)</label>' +
+        '<textarea class="input" id="orderNotesInput" rows="2" placeholder="cth. toko tutup lebih awal, follow up minggu depan..."></textarea>' +
+      '</div>' +
+      '<div class="sticky-bottom">' +
+        '<button class="btn btn-outline" style="flex:1;" data-action="closeOrderForm">Batal</button>' +
+        '<button class="btn btn-dark" style="flex:1;" data-action="submitCheckout" '+(S.busy?'disabled':'')+'>Simpan & Check-out</button>' +
+      '</div>' +
+    '</div></div>';
+}
+
+/* ---------------- DASHBOARD screen ---------------- */
+function screenDashboard(){
+  var role = S.session.role;
+  var scoped = S.visits.filter(function(v){ return isInRange(v.checkinTime, S.dashFilter, S.dashStart, S.dashEnd); });
+  var bySales = {};
+  scoped.forEach(function(v){ (bySales[v.salesName] = bySales[v.salesName]||[]).push(v); });
+  var totalVisits = scoped.length;
+  var activeNow = S.visits.filter(function(v){ return v.status==='active'; }).length;
+  var totalOrder = scoped.reduce(function(s,v){ return s+orderTotalOf(v); },0);
+  var totalPay = scoped.reduce(function(s,v){ return s+(v.payment||0); },0);
+  var flagged = scoped.filter(function(v){ return v.checkinOutOfRadius; }).length;
+
+  var tabs = role==='owner' ? [['visits','Kunjungan'],['stores','Kelola Toko'],['users','Kelola User']] : [['visits','Kunjungan'],['stores','Kelola Toko']];
+
+  var html = '<div class="screen">';
+  html += '<div class="header" style="padding-bottom:28px;">' +
+    '<div class="row between">' +
+      '<div class="row gap8"><div style="width:32px;height:32px;border-radius:10px;background:rgba(255,255,255,.1);display:flex;align-items:center;justify-content:center;">'+(role==='owner'?'🛡':'👥')+'</div><div><div style="font-weight:600;font-size:14px;">'+(role==='owner'?'Owner':'Supervisor')+'</div><div class="xs mono" style="color:rgba(255,255,255,.5);">@'+esc(S.session.username)+'</div></div></div>' +
+      '<div class="row gap4">' +
+        (role==='supervisor' ? '<button data-action="switchScreen" data-val="sales" class="btn btn-ghost btn-sm" style="font-size:11px;">📍 Kunjungan Saya</button>' : '') +
+        '<button data-action="refreshVisits" style="background:none;border:none;color:rgba(255,255,255,.6);font-size:16px;padding:8px;">⟳</button><button data-action="logout" style="background:none;border:none;color:rgba(255,255,255,.6);font-size:18px;padding:8px;">⏻</button>' +
+      '</div>' +
+    '</div></div>';
+
+  html += '<div class="p20 mt-4" style="margin-bottom:20px;">';
+  html += '<div class="tabs" style="margin-bottom:12px;">' + tabs.map(function(t){ return '<button class="tab-btn '+(S.dashTab===t[0]?'active':'')+'" data-action="setDashTab" data-val="'+t[0]+'">'+t[1]+'</button>'; }).join('') + '</div>';
+
+  if(S.dashTab==='visits'){
+    html += filterChipsHTML('dash', S.dashFilter, S.dashStart, S.dashEnd);
+    html += '<button class="btn btn-dark btn-sm" style="margin:8px 0 16px;" data-action="exportDash" '+(scoped.length===0?'disabled':'')+'>⬇ Export CSV ('+scoped.length+' kunjungan)</button>';
+    html += '<div class="grid2" style="margin-bottom:16px;">' +
+      statCard('Kunjungan', totalVisits, activeNow+' sedang berlangsung') +
+      statCard('Nilai order', rp(totalOrder)) +
+      statCard('Terbayar', rp(totalPay)) +
+      statCard('Sales aktif', Object.keys(bySales).length, flagged>0 ? ('⚠ '+flagged+' luar radius') : '') +
+    '</div>';
+    html += dailySummaryHTML(scoped);
+  } else if(S.dashTab==='stores'){
+    html += storesManagementHTML();
+  } else if(S.dashTab==='users' && role==='owner'){
+    html += usersManagementHTML();
+  }
+  html += '</div>';
+
+  if(S.dashTab==='visits'){
+    html += '<div class="p20" style="padding-bottom:40px;">';
+    html += '<h3 class="xs muted" style="text-transform:uppercase;letter-spacing:.03em;margin:0 0 12px;">Per sales</h3>';
+    var salesList = Object.keys(bySales).sort(function(a,b){ return bySales[b].length - bySales[a].length; });
+    if(salesList.length===0){ html += '<p class="small muted">Belum ada data kunjungan pada periode ini.</p>'; }
+    salesList.forEach(function(name){
+      var list = bySales[name];
+      var pay = list.reduce(function(s,v){ return s+(v.payment||0); },0);
+      var order = list.reduce(function(s,v){ return s+orderTotalOf(v); },0);
+      var fl = list.filter(function(v){ return v.checkinOutOfRadius; }).length;
+      var open = S.expandedSales===name;
+      html += '<div class="card2" style="margin-bottom:12px;">';
+      html += '<button class="row gap8" style="width:100%;text-align:left;border:none;background:none;padding:16px;" data-action="toggleSales" data-name="'+esc(name)+'">' +
+        '<div style="width:36px;height:36px;border-radius:999px;background:var(--bg);display:flex;align-items:center;justify-content:center;flex-shrink:0;">👤</div>' +
+        '<div style="flex:1;min-width:0;"><div class="row gap6" style="font-weight:600;font-size:14px;">'+esc(name)+(fl>0?(' '+badge('⚠ '+fl,'warn')):'')+'</div>' +
+        '<div class="xs muted mono">'+list.length+' kunjungan · '+rp(order)+' order · '+rp(pay)+' dibayar</div></div>' +
+      '</button>';
+      if(open){
+        html += '<div style="padding:0 16px 16px;border-top:1px solid #EFEBE2;padding-top:12px;">';
+        html += list.sort(function(a,b){ return new Date(b.checkinTime)-new Date(a.checkinTime); }).map(function(v){ return visitRowHTML(v,false,S.expandedVisitId); }).join('');
+        html += '</div>';
+      }
+      html += '</div>';
+    });
+    html += '</div>';
+  }
+  html += '</div>';
+  return html;
+}
+
+function storesManagementHTML(){
+  var stores = S.storesCache || {};
+  var keys = Object.keys(stores).sort(function(a,b){ return stores[a].name.localeCompare(stores[b].name); });
+  var html = '<div class="row between" style="margin-bottom:8px;"><p class="xs muted" style="margin:0;">Lokasi terdaftar otomatis dari check-in pertama sales di toko tersebut.</p><button data-action="reloadStores" style="background:none;border:none;color:var(--primary);padding:6px;">⟳</button></div>';
+  if(keys.length===0){ html += '<p class="small muted">Belum ada toko terdaftar.</p>'; }
+  keys.forEach(function(key){
+    var store = stores[key];
+    var mapsLink = 'https://www.google.com/maps?q='+store.lat+','+store.lng;
+    var radiusVal = (S.storeRadiusDrafts[key]!=null) ? S.storeRadiusDrafts[key] : (store.radius||DEFAULT_RADIUS);
+    html += '<div class="card" style="margin-bottom:10px;">' +
+      '<div class="row between" style="margin-bottom:8px;"><span style="font-weight:600;font-size:14px;">'+esc(store.name)+'</span><a class="link mono" href="'+mapsLink+'" target="_blank" rel="noreferrer">lihat peta</a></div>' +
+      '<div class="row gap8">' +
+        '<label class="xs muted" style="flex-shrink:0;">Radius</label>' +
+        '<input type="number" min="10" class="input mono xs" style="width:70px;padding:6px 8px;" id="radius_'+esc(key)+'" value="'+radiusVal+'">' +
+        '<span class="xs muted" style="flex-shrink:0;">meter</span>' +
+        '<button class="btn btn-outline btn-sm" style="margin-left:auto;flex-shrink:0;" data-action="saveRadius" data-key="'+esc(key)+'">Simpan</button>' +
+        '<button data-action="resetStoreLocation" data-key="'+esc(key)+'" style="background:none;border:none;color:var(--danger);padding:4px;flex-shrink:0;" title="Reset lokasi">⟲</button>' +
+      '</div></div>';
+  });
+  return html;
+}
+
+function usersManagementHTML(){
+  var users = S.users;
+  var keys = Object.keys(users).sort(function(a,b){ return users[a].displayName.localeCompare(users[b].displayName); });
+  var roleLabel = {sales:'Sales', supervisor:'Supervisor', owner:'Owner'};
+  var html = '<div class="card" style="margin-bottom:16px;">' +
+    '<h4 class="xs muted" style="text-transform:uppercase;margin:0 0 4px;">⇅ Impor massal dari Excel</h4>' +
+    '<p class="xs muted" style="margin:0 0 10px;">Unduh template, isi di Excel (satu baris = satu sales), simpan sebagai CSV, lalu unggah di sini.</p>' +
+    '<div class="row gap8" style="flex-wrap:wrap;">' +
+      '<button class="btn btn-outline btn-sm" data-action="downloadUserTemplate">⬇ Unduh Template CSV</button>' +
+      '<label for="importUserFile" class="btn btn-dark btn-sm" style="cursor:pointer;">⬆ Import CSV</label>' +
+    '</div>' +
+    '<input type="file" id="importUserFile" accept=".csv,text/csv" style="position:absolute;width:1px;height:1px;opacity:0;overflow:hidden;">' +
+    '</div>' +
+    '<div class="card" style="margin-bottom:16px;">' +
+    '<h4 class="xs muted" style="text-transform:uppercase;margin:0 0 12px;">+ Buat akun baru</h4>' +
+    '<div class="stack gap8">' +
+      '<input class="input" id="nu_name" placeholder="Nama lengkap">' +
+      '<div class="row gap8"><input class="input" id="nu_user" style="flex:1;" placeholder="Username" autocapitalize="off">' +
+      '<select class="input" id="nu_role" style="width:auto;"><option value="sales">Sales</option><option value="supervisor">Supervisor</option><option value="owner">Owner</option></select></div>' +
+      '<input class="input mono" id="nu_pass" placeholder="Password awal (min 4 karakter)">' +
+      (S.errorMsg ? '<div class="xs" style="color:var(--danger);">⚠ '+esc(S.errorMsg)+'</div>' : '') +
+      '<button class="btn btn-dark" style="width:100%;" data-action="createUser">Buat akun</button>' +
+    '</div></div>';
+  keys.forEach(function(key){
+    var u = users[key];
+    html += '<div class="card" style="margin-bottom:8px;">' +
+      '<div class="row gap8">' +
+        '<div style="width:36px;height:36px;border-radius:999px;background:var(--bg);display:flex;align-items:center;justify-content:center;flex-shrink:0;">👤</div>' +
+        '<div style="flex:1;min-width:0;"><div class="row gap6" style="font-weight:600;font-size:14px;flex-wrap:wrap;">'+esc(u.displayName)+(key===S.session.username?(' '+badge('Anda','neutral')):'')+(!u.active?(' '+badge('nonaktif','warn')):'')+'</div>' +
+        '<div class="xs muted mono">@'+esc(u.username)+' · '+roleLabel[u.role]+'</div></div>' +
+        '<button data-action="toggleResetPw" data-key="'+esc(key)+'" style="background:none;border:none;color:var(--primary);padding:6px;flex-shrink:0;" title="Reset password">🔑</button>' +
+        (key!==S.session.username ? ('<button data-action="toggleActive" data-key="'+esc(key)+'" style="background:none;border:none;padding:6px;flex-shrink:0;color:'+(u.active?'var(--danger)':'var(--success)')+';" title="'+(u.active?'Nonaktifkan':'Aktifkan')+'">'+(u.active?'🚫':'✓')+'</button>') : '') +
+      '</div>';
+    if(S.resetKey===key){
+      html += '<div class="row gap8" style="margin-top:10px;padding-top:10px;border-top:1px solid #EFEBE2;">' +
+        '<input class="input mono xs" id="resetPwInput" placeholder="Password baru (min 4 karakter)" style="flex:1;">' +
+        '<button class="btn btn-dark btn-sm" data-action="submitResetPw" data-key="'+esc(key)+'">Simpan</button>' +
+      '</div>';
+    }
+    html += '</div>';
+  });
+  return html;
+}
+
+/* ---------------- render dispatch ---------------- */
+function render(){
+  var app = document.getElementById('app');
+  var html;
+  if(S.screen==='loading'){
+    html = '<div class="center-screen"><span style="font-size:20px;" class="spin">⟳</span><span class="xs muted mono">Memuat...</span></div>';
+  } else if(S.screen==='autherror'){
+    html = '<div class="center-screen">' +
+      '<span style="font-size:26px;">⚠</span>' +
+      '<h2 class="display" style="font-size:17px;color:var(--primary);margin:4px 0;">Gagal memuat aplikasi</h2>' +
+      '<p class="small muted" style="max-width:300px;">'+esc(S.errorMsg)+'</p>' +
+      '<button class="btn btn-dark" data-action="retryAuth">⟳ Coba lagi</button>' +
+    '</div>';
+  } else if(S.screen==='setup'){
+    html = screenSetup();
+  } else if(S.screen==='login'){
+    html = screenLogin();
+  } else if(S.screen==='sales'){
+    html = screenSales();
+  } else if(S.screen==='dashboard'){
+    html = screenDashboard();
+  } else {
+    html = '<div class="center-screen"><p>Layar tidak dikenali.</p></div>';
+  }
+  app.innerHTML = html;
+  startTimerIfNeeded();
+}
+
+function startTimerIfNeeded(){
+  if(S.timerHandle){ clearInterval(S.timerHandle); S.timerHandle=null; }
+  var el = document.getElementById('liveTimer');
+  if(!el) return;
+  var start = new Date(el.getAttribute('data-start')).getTime();
+  function tick(){
+    var elapsed = Math.max(0, Math.floor((Date.now()-start)/1000));
+    var h=Math.floor(elapsed/3600), m=Math.floor((elapsed%3600)/60), s=elapsed%60;
+    function pad(n){ return String(n).padStart(2,'0'); }
+    el.textContent = h>0 ? (pad(h)+':'+pad(m)+':'+pad(s)) : (pad(m)+':'+pad(s));
+  }
+  tick();
+  S.timerHandle = setInterval(tick, 1000);
+}
+
+/* ---------------- actions ---------------- */
+var Actions = {
+  retryAuth: function(){ initAuth(); },
+
+  submitSetup: function(){
+    var name=(document.getElementById('su_name').value||'').trim();
+    var user=(document.getElementById('su_user').value||'').trim();
+    var pass=document.getElementById('su_pass').value||'';
+    var pass2=document.getElementById('su_pass2').value||'';
+    S.setupDraft = {name:name, user:user};
+    if(!name || !user || pass.length<4){ setState({errorMsg:'Lengkapi semua kolom. Password minimal 4 karakter.'}); return; }
+    if(pass!==pass2){ setState({errorMsg:'Konfirmasi password tidak cocok.'}); return; }
+    setState({busy:true, errorMsg:''});
+    var key=user.toLowerCase();
+    hashPassword(key, pass).then(function(hash){
+      var users={}; users[key]={username:key, displayName:name, passwordHash:hash, role:'owner', active:true, createdAt:new Date().toISOString()};
+      return saveUsers(users);
+    }).then(function(){ setState({busy:false}); initAuth(); })
+      .catch(function(e){ setState({busy:false, errorMsg:'Gagal menyimpan akun: '+(e&&e.message?e.message:'terjadi kesalahan')+'. Coba lagi.'}); });
+  },
+
+  submitLogin: function(){
+    var user=(document.getElementById('li_user').value||'').trim();
+    var pass=document.getElementById('li_pass').value||'';
+    if(!user || !pass){ setState({errorMsg:'Isi username dan password.'}); return; }
+    setState({busy:true, errorMsg:''});
+    loadUsers().then(function(users){
+      var key=user.toLowerCase();
+      var u=users[key];
+      if(!u){ setState({busy:false, errorMsg:'Username tidak ditemukan.'}); return; }
+      if(!u.active){ setState({busy:false, errorMsg:'Akun dinonaktifkan. Hubungi atasan Anda.'}); return; }
+      return hashPassword(key, pass).then(function(hash){
+        if(hash!==u.passwordHash){ setState({busy:false, errorMsg:'Password salah.'}); return; }
+        enterApp({role:u.role, name:u.displayName, username:u.username});
+      });
+    });
+  },
+
+  logout: function(){
+    if(S.timerHandle){ clearInterval(S.timerHandle); S.timerHandle=null; }
+    setState({session:null, screen:'login', errorMsg:'', salesTab:'home', checkinStage:'idle', dashTab:'visits', expandedSales:null});
+  },
+
+  setSalesTab: function(el){ setState({salesTab: el.getAttribute('data-val')}); },
+  switchScreen: function(el){ setState({screen: el.getAttribute('data-val')}); },
+  setDashTab: function(el){
+    var val = el.getAttribute('data-val');
+    setState({dashTab: val});
+    if(val==='stores') Actions.reloadStores();
+  },
+
+  startCheckin: function(){
+    loadStores().then(function(stores){
+      setState({checkinStage:'entering', gpsError:'', storeNames: Object.keys(stores).map(function(k){ return stores[k].name; })});
+    });
+  },
+  cancelCheckin: function(){ setState({checkinStage:'idle', outOfRadius:null, gpsError:''}); },
+
+  attemptCheckin: function(){
+    var storeInput = document.getElementById('storeNameInput');
+    var storeName = storeInput ? storeInput.value.trim() : '';
+    if(!storeName){ setState({gpsError:'Nama toko belum diisi. Ketik dulu nama tokonya.'}); return; }
+    setState({busy:true, gpsError:''});
+    getPosition().then(function(pos){
+      if(pos.error){ setState({busy:false, gpsError:pos.error}); return; }
+      var key = storeName.toLowerCase();
+      loadStores().then(function(stores){
+        var store = stores[key];
+        if(store && store.lat!=null && store.lng!=null){
+          var distance = haversineMeters(pos.lat, pos.lng, store.lat, store.lng);
+          var radius = store.radius || DEFAULT_RADIUS;
+          if(distance > radius){
+            setState({busy:false, outOfRadius:{distance:distance, radius:radius, storeKey:key, pos:pos, storeName:store.name}, checkinStage:'outOfRadius'});
+            return;
+          }
+          finalizeCheckin(pos, store.name, {distanceMeters:distance, outOfRadius:false});
+        } else {
+          var newStores = Object.assign({}, stores);
+          newStores[key] = {name:storeName, lat:pos.lat, lng:pos.lng, radius:DEFAULT_RADIUS, createdBy:S.session.name, createdAt:new Date().toISOString()};
+          saveStores(newStores).then(function(){
+            finalizeCheckin(pos, storeName, {distanceMeters:0, outOfRadius:false, isNewStore:true});
+          }).catch(function(e){ setState({busy:false, gpsError:'Gagal menyimpan lokasi toko: '+(e&&e.message?e.message:'terjadi kesalahan')}); });
+        }
+      }).catch(function(e){ setState({busy:false, gpsError:'Gagal memuat data toko: '+(e&&e.message?e.message:'terjadi kesalahan')}); });
+    });
+  },
+  retryCheckin: function(){ setState({checkinStage:'entering', outOfRadius:null}); Actions.attemptCheckin(); },
+  confirmOverride: function(){
+    var reasonEl = document.getElementById('overrideReason');
+    var reason = reasonEl ? reasonEl.value.trim() : '';
+    if(!reason || !S.outOfRadius) return;
+    setState({busy:true});
+    finalizeCheckin(S.outOfRadius.pos, S.outOfRadius.storeName, {distanceMeters:S.outOfRadius.distance, outOfRadius:true, overrideReason:reason});
+  },
+
+  openOrderForm: function(){ setState({orderFormOpen:true, orderItems:[{id:uid(), product:'', qty:1, price:0}]}); },
+  closeOrderForm: function(){ setState({orderFormOpen:false}); },
+  addOrderItem: function(){ syncOrderItemsFromDOM(); S.orderItems.push({id:uid(), product:'', qty:1, price:0}); render(); },
+  removeOrderItem: function(el){ syncOrderItemsFromDOM(); var idx=Number(el.getAttribute('data-idx')); S.orderItems.splice(idx,1); render(); },
+  submitCheckout: function(){
+    syncOrderItemsFromDOM();
+    var paymentEl = document.getElementById('orderPayment');
+    var notesEl = document.getElementById('orderNotesInput');
+    var payment = Number(paymentEl ? paymentEl.value : 0) || 0;
+    var notes = notesEl ? notesEl.value : '';
+    var orders = S.orderItems.filter(function(i){ return i.product.trim(); }).map(function(i){ return {id:i.id, product:i.product, qty:Number(i.qty)||0, price:Number(i.price)||0}; });
+    setState({busy:true});
+    var mv = myVisits();
+    var active = mv.filter(function(v){ return v.status==='active'; })[0];
+    getPosition().then(function(pos){
+      loadVisits().then(function(all){
+        var updated = all.map(function(v){
+          if(v.id!==active.id) return v;
+          var checkoutTime = new Date().toISOString();
+          var durationMinutes = (new Date(checkoutTime)-new Date(v.checkinTime))/60000;
+          return Object.assign({}, v, {checkoutTime:checkoutTime, checkoutLat:pos.lat||null, checkoutLng:pos.lng||null, status:'done', durationMinutes:durationMinutes, orders:orders, payment:payment, notes:notes});
+        });
+        return saveVisits(updated).then(function(){ return refreshVisitsSilent(); });
+      }).then(function(){ setState({busy:false, orderFormOpen:false}); })
+        .catch(function(e){ setState({busy:false}); alertSaveError(e); });
+    });
+  },
+
+  toggleVisit: function(el){ var id=el.getAttribute('data-id'); setState({expandedSales: S.expandedSales===id?null:id}); },
+  setFilter: function(el){
+    var prefix=el.getAttribute('data-prefix'), val=el.getAttribute('data-val');
+    if(prefix==='riwayat') setState({riwayatFilter:val});
+    else setState({dashFilter:val});
+  },
+  setDateRange: function(el){
+    var prefix=el.getAttribute('data-prefix'), which=el.getAttribute('data-which'), val=el.value;
+    var patch={};
+    if(prefix==='riwayat') patch[which==='start'?'riwayatStart':'riwayatEnd']=val;
+    else patch[which==='start'?'dashStart':'dashEnd']=val;
+    setState(patch);
+  },
+  exportRiwayat: function(){
+    var mv = myVisits();
+    var riwayat = mv.filter(function(v){ return v.status==='done' && isInRange(v.checkinTime, S.riwayatFilter, S.riwayatStart, S.riwayatEnd); });
+    exportCSV(riwayat, 'riwayat-'+S.session.name.replace(/\s+/g,'-').toLowerCase());
+  },
+  exportDash: function(){
+    var scoped = S.visits.filter(function(v){ return isInRange(v.checkinTime, S.dashFilter, S.dashStart, S.dashEnd); });
+    exportCSV(scoped, 'laporan-kunjungan');
+  },
+
+  toggleSales: function(el){ var name=el.getAttribute('data-name'); setState({expandedSales: S.expandedSales===name?null:name}); },
+  refreshVisits: function(){ refreshVisitsSilent().then(function(){ render(); }); },
+
+  reloadStores: function(){ loadStores().then(function(stores){ S.storesCache=stores; render(); }); },
+  saveRadius: function(el){
+    var key=el.getAttribute('data-key');
+    var input=document.getElementById('radius_'+key);
+    var newRadius=Number(input.value)||DEFAULT_RADIUS;
+    var stores=Object.assign({}, S.storesCache);
+    stores[key]=Object.assign({}, stores[key], {radius:newRadius});
+    saveStores(stores).then(function(){ S.storesCache=stores; render(); }).catch(alertSaveError);
+  },
+  resetStoreLocation: function(el){
+    var key=el.getAttribute('data-key');
+    var stores=Object.assign({}, S.storesCache);
+    delete stores[key];
+    saveStores(stores).then(function(){ S.storesCache=stores; render(); }).catch(alertSaveError);
+  },
+
+  downloadUserTemplate: function(){ downloadUserTemplateCSV(); },
+  triggerImportUsers: function(){ var el=document.getElementById('importUserFile'); if(el) el.click(); },
+
+  createUser: function(){
+    var name=(document.getElementById('nu_name').value||'').trim();
+    var user=(document.getElementById('nu_user').value||'').trim();
+    var role=document.getElementById('nu_role').value;
+    var pass=document.getElementById('nu_pass').value||'';
+    if(!name || !user || pass.length<4){ setState({errorMsg:'Lengkapi nama, username, password (min 4 karakter).'}); return; }
+    var key=user.toLowerCase();
+    if(S.users[key]){ setState({errorMsg:'Username sudah dipakai.'}); return; }
+    hashPassword(key, pass).then(function(hash){
+      var users=Object.assign({}, S.users);
+      users[key]={username:key, displayName:name, passwordHash:hash, role:role, active:true, createdAt:new Date().toISOString()};
+      return saveUsers(users).then(function(){ S.users=users; setState({errorMsg:''}); });
+    }).catch(function(e){ setState({errorMsg:'Gagal membuat akun: '+(e&&e.message?e.message:'terjadi kesalahan')}); });
+  },
+  toggleActive: function(el){
+    var key=el.getAttribute('data-key');
+    var users=Object.assign({}, S.users);
+    users[key]=Object.assign({}, users[key], {active: !users[key].active});
+    saveUsers(users).then(function(){ S.users=users; render(); }).catch(alertSaveError);
+  },
+  toggleResetPw: function(el){ var key=el.getAttribute('data-key'); setState({resetKey: S.resetKey===key?null:key}); },
+  submitResetPw: function(el){
+    var key=el.getAttribute('data-key');
+    var input=document.getElementById('resetPwInput');
+    var pw=input?input.value:'';
+    if(pw.length<4) return;
+    hashPassword(key, pw).then(function(hash){
+      var users=Object.assign({}, S.users);
+      users[key]=Object.assign({}, users[key], {passwordHash:hash});
+      return saveUsers(users).then(function(){ S.users=users; setState({resetKey:null}); });
+    }).catch(alertSaveError);
+  },
+
+  noop: function(){}
+};
+
+function syncOrderItemsFromDOM(){
+  var fields = document.querySelectorAll('[data-order-field]');
+  fields.forEach(function(f){
+    var idx=Number(f.getAttribute('data-idx'));
+    var field=f.getAttribute('data-order-field');
+    if(!S.orderItems[idx]) return;
+    S.orderItems[idx][field] = field==='product' ? f.value : f.value;
+  });
+}
+
+function finalizeCheckin(pos, storeName, meta){
+  var newVisit = {
+    id:uid(), salesName:S.session.name, storeName:storeName,
+    checkinTime:new Date().toISOString(), checkinLat:pos.lat, checkinLng:pos.lng,
+    checkinDistanceMeters: meta.distanceMeters, checkinOutOfRadius: !!meta.outOfRadius,
+    checkinOverrideReason: meta.overrideReason||'', isNewStore: !!meta.isNewStore,
+    checkoutTime:null, checkoutLat:null, checkoutLng:null,
+    status:'active', orders:[], payment:0, notes:''
+  };
+  loadVisits().then(function(all){
+    return saveVisits([newVisit].concat(all));
+  }).then(function(){ return refreshVisitsSilent(); }).then(function(){
+    setState({checkinStage:'idle', outOfRadius:null, busy:false});
+  }).catch(function(e){
+    setState({busy:false, gpsError:'Gagal menyimpan check-in: '+(e&&e.message?e.message:'terjadi kesalahan')+'. Coba lagi.'});
+  });
+}
+
+function refreshVisitsSilent(){
+  return loadVisits().then(function(v){ S.visits=v; }).catch(function(e){ console.error('gagal muat kunjungan', e); });
+}
+
+/* ---------------- event delegation ---------------- */
+document.getElementById('app').addEventListener('click', function(e){
+  var el = e.target.closest('[data-action]');
+  if(!el) return;
+  var action = el.getAttribute('data-action');
+  if(Actions[action]) Actions[action](el);
+});
+document.getElementById('app').addEventListener('change', function(e){
+  var el = e.target.closest('[data-action="setDateRange"]');
+  if(el) Actions.setDateRange(el);
+  if(e.target.id === 'importUserFile'){
+    var file = e.target.files && e.target.files[0];
+    if(file) showToast('Memproses file "'+file.name+'"...', false);
+    handleImportUsersFile(file);
+    e.target.value = '';
+  }
+});
+
+/* ---------------- app bootstrap ---------------- */
+function initAuth(){
+  setState({screen:'loading', errorMsg:''});
+  loadUsers().then(function(users){
+    S.users = users;
+    if(Object.keys(users).length===0){ setState({screen:'setup', errorMsg:''}); }
+    else { setState({screen:'login', errorMsg:''}); }
+  }).catch(function(e){
+    setState({screen:'autherror', errorMsg: (e && e.message) ? e.message : 'Gagal memuat data. Periksa koneksi internet Anda.'});
+  });
+}
+
+function enterApp(session){
+  setState({session:session, busy:false, errorMsg:'', screen: session.role==='sales' ? 'sales' : 'dashboard'});
+  refreshVisitsSilent().then(function(){ render(); });
+  if(session.role!=='sales'){ loadStores().then(function(stores){ S.storesCache=stores; render(); }); }
+  var poll = setInterval(function(){
+    if(!S.session){ clearInterval(poll); return; }
+    refreshVisitsSilent().then(function(){
+      if(S.dashTab==='users' || S.dashTab==='stores') return; // avoid disrupting file pickers / forms on these tabs
+      if(S.checkinStage==='entering' || S.checkinStage==='outOfRadius') return; // avoid wiping the check-in form while typing
+      if(S.orderFormOpen) return; // avoid wiping the checkout/order form while filling it in
+      render();
+    });
+  }, 8000);
+}
+
+initAuth();
+})();
+</script>
+</body>
+</html>
