@@ -828,7 +828,10 @@ var Actions = {
           newStores[key] = {name:storeName, lat:pos.lat, lng:pos.lng, radius:DEFAULT_RADIUS, kecamatan:'', kota:'', createdBy:S.session.name, createdAt:new Date().toISOString()};
           saveStores(newStores).then(function(){
             finalizeCheckin(pos, storeName, {distanceMeters:0, outOfRadius:false, isNewStore:true});
-            geocodeStoreBestEffort(key, pos.lat, pos.lng);
+            // Deferred well after check-in completes so it never competes for resources at the critical moment.
+            setTimeout(function(){
+              try { geocodeStoreBestEffort(key, pos.lat, pos.lng); } catch(e){ console.warn('geocode skipped', e); }
+            }, 4000);
           }).catch(function(e){ setState({busy:false, gpsError:'Gagal menyimpan lokasi toko: '+(e&&e.message?e.message:'terjadi kesalahan')}); });
         }
       }).catch(function(e){ setState({busy:false, gpsError:'Gagal memuat data toko: '+(e&&e.message?e.message:'terjadi kesalahan')}); });
