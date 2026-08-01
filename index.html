@@ -164,10 +164,22 @@ function haversineMeters(lat1,lng1,lat2,lng2){
 }
 function getPosition(){
   return new Promise(function(resolve){
-    if(!navigator.geolocation){ resolve({error:'Perangkat tidak mendukung GPS'}); return; }
+    if(!navigator.geolocation){ resolve({error:'Perangkat/browser ini tidak mendukung GPS.'}); return; }
     navigator.geolocation.getCurrentPosition(
       function(p){ resolve({lat:p.coords.latitude, lng:p.coords.longitude}); },
-      function(err){ resolve({error: err.message || 'Gagal mengambil lokasi'}); },
+      function(err){
+        var msg;
+        if(err.code === 1){ // PERMISSION_DENIED
+          msg = 'Izin lokasi ditolak/belum diaktifkan. Cara mengaktifkan: ketuk ikon 🔒 atau (i) di sebelah alamat website di atas → cari "Lokasi"/"Location" → pilih "Izinkan"/"Allow". Setelah itu coba Check-in lagi.';
+        } else if(err.code === 2){ // POSITION_UNAVAILABLE
+          msg = 'Lokasi GPS tidak dapat dideteksi. Pastikan GPS di HP menyala dan coba lagi di tempat yang lebih terbuka.';
+        } else if(err.code === 3){ // TIMEOUT
+          msg = 'Waktu tunggu mengambil lokasi habis. Pastikan sinyal GPS/internet cukup kuat, lalu coba lagi.';
+        } else {
+          msg = 'Gagal mengambil lokasi (' + (err.message || 'kesalahan tidak diketahui') + '). Coba lagi.';
+        }
+        resolve({error: msg});
+      },
       {enableHighAccuracy:true, timeout:10000}
     );
   });
@@ -436,7 +448,7 @@ function screenSales(){
       '<input class="input input-dark" id="storeNameInput" list="storeSuggestions" placeholder="cth. Toko Sumber Jaya">' +
       '<datalist id="storeSuggestions">' + S.storeNames.map(function(n){ return '<option value="'+esc(n)+'">'; }).join('') + '</datalist>' +
       '<p class="xs" style="color:rgba(255,255,255,.4);margin:6px 0 0;">Toko baru akan mendaftarkan lokasi GPS saat ini sebagai titik acuan.</p>' +
-      (S.gpsError ? '<div class="xs" style="color:#F3C6A8;margin-top:6px;">⚠ '+esc(S.gpsError)+'</div>' : '') +
+      (S.gpsError ? '<div class="xs" style="color:#F3C6A8;margin-top:8px;line-height:1.5;background:rgba(193,80,46,.15);border:1px solid rgba(193,80,46,.35);border-radius:10px;padding:10px 12px;">⚠ '+esc(S.gpsError)+'</div>' : '') +
       '<div class="row gap8" style="margin-top:12px;">' +
         '<button class="btn btn-ghost" style="flex:1;" data-action="cancelCheckin">Batal</button>' +
         '<button class="btn btn-accent" style="flex:1;" data-action="attemptCheckin" '+(S.busy?'disabled':'')+'>'+(S.busy?'Memeriksa lokasi...':'📍 Check-in')+'</button>' +
