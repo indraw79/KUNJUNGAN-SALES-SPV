@@ -433,7 +433,7 @@ function screenSales(){
       '</div>';
   } else if(S.checkinStage==='entering'){
     headerInner = '<label class="lbl" style="color:rgba(255,255,255,.7);">Nama toko</label>' +
-      '<input class="input input-dark" id="storeNameInput" list="storeSuggestions" placeholder="cth. Toko Sumber Jaya" autofocus>' +
+      '<input class="input input-dark" id="storeNameInput" list="storeSuggestions" placeholder="cth. Toko Sumber Jaya">' +
       '<datalist id="storeSuggestions">' + S.storeNames.map(function(n){ return '<option value="'+esc(n)+'">'; }).join('') + '</datalist>' +
       '<p class="xs" style="color:rgba(255,255,255,.4);margin:6px 0 0;">Toko baru akan mendaftarkan lokasi GPS saat ini sebagai titik acuan.</p>' +
       (S.gpsError ? '<div class="xs" style="color:#F3C6A8;margin-top:6px;">⚠ '+esc(S.gpsError)+'</div>' : '') +
