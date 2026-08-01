@@ -774,6 +774,7 @@ var Actions = {
 
   logout: function(){
     if(S.timerHandle){ clearInterval(S.timerHandle); S.timerHandle=null; }
+    clearSessionLocal();
     setState({session:null, screen:'login', errorMsg:'', salesTab:'home', checkinStage:'idle', dashTab:'visits', expandedSales:null});
   },
 
@@ -1006,18 +1007,40 @@ document.getElementById('app').addEventListener('change', function(e){
 });
 
 /* ---------------- app bootstrap ---------------- */
+var SESSION_KEY = 'sft-session-v1';
+function saveSessionLocal(session){
+  try { localStorage.setItem(SESSION_KEY, JSON.stringify(session)); } catch(e){ console.warn('gagal simpan sesi lokal', e); }
+}
+function loadSessionLocal(){
+  try {
+    var raw = localStorage.getItem(SESSION_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch(e){ return null; }
+}
+function clearSessionLocal(){
+  try { localStorage.removeItem(SESSION_KEY); } catch(e){}
+}
+
 function initAuth(){
   setState({screen:'loading', errorMsg:''});
   loadUsers().then(function(users){
     S.users = users;
-    if(Object.keys(users).length===0){ setState({screen:'setup', errorMsg:''}); }
-    else { setState({screen:'login', errorMsg:''}); }
+    if(Object.keys(users).length===0){ setState({screen:'setup', errorMsg:''}); return; }
+    var saved = loadSessionLocal();
+    if(saved && saved.username && users[saved.username] && users[saved.username].active){
+      var u = users[saved.username];
+      enterApp({role:u.role, name:u.displayName, username:u.username});
+      return;
+    }
+    if(saved) clearSessionLocal(); // stale/invalid session (account removed or deactivated)
+    setState({screen:'login', errorMsg:''});
   }).catch(function(e){
     setState({screen:'autherror', errorMsg: (e && e.message) ? e.message : 'Gagal memuat data. Periksa koneksi internet Anda.'});
   });
 }
 
 function enterApp(session){
+  saveSessionLocal(session);
   setState({session:session, busy:false, errorMsg:'', screen: session.role==='sales' ? 'sales' : 'dashboard'});
   refreshVisitsSilent().then(function(){ render(); });
   if(session.role!=='sales'){ loadStores().then(function(stores){ S.storesCache=stores; render(); }); }
