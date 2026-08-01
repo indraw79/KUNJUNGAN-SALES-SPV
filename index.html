@@ -605,14 +605,26 @@ function screenDashboard(){
 function storesManagementHTML(){
   var stores = S.storesCache || {};
   var keys = Object.keys(stores).sort(function(a,b){ return stores[a].name.localeCompare(stores[b].name); });
-  var html = '<div class="row between" style="margin-bottom:8px;"><p class="xs muted" style="margin:0;">Lokasi terdaftar otomatis dari check-in pertama sales di toko tersebut.</p><button data-action="reloadStores" style="background:none;border:none;color:var(--primary);padding:6px;">⟳</button></div>';
+  var html = '<div class="row between" style="margin-bottom:8px;flex-wrap:wrap;gap:8px;">' +
+    '<p class="xs muted" style="margin:0;flex:1;min-width:200px;">Lokasi & kecamatan/kota terdeteksi otomatis dari check-in pertama sales — bisa dikoreksi manual di bawah.</p>' +
+    '<button data-action="reloadStores" style="background:none;border:none;color:var(--primary);padding:6px;flex-shrink:0;">⟳</button>' +
+  '</div>';
+  html += '<a href="/api/export-stores" class="btn btn-dark btn-sm" style="margin-bottom:14px;display:inline-flex;">⬇ Export Data Toko (Excel)</a>';
   if(keys.length===0){ html += '<p class="small muted">Belum ada toko terdaftar.</p>'; }
   keys.forEach(function(key){
     var store = stores[key];
     var mapsLink = 'https://www.google.com/maps?q='+store.lat+','+store.lng;
     var radiusVal = (S.storeRadiusDrafts[key]!=null) ? S.storeRadiusDrafts[key] : (store.radius||DEFAULT_RADIUS);
+    var kotaLabel = store.kota ? esc(store.kota) : '<span style="color:var(--muted);">belum diketahui</span>';
+    var kecLabel = store.kecamatan ? esc(store.kecamatan) : '<span style="color:var(--muted);">belum diketahui</span>';
     html += '<div class="card" style="margin-bottom:10px;">' +
-      '<div class="row between" style="margin-bottom:8px;"><span style="font-weight:600;font-size:14px;">'+esc(store.name)+'</span><a class="link mono" href="'+mapsLink+'" target="_blank" rel="noreferrer">lihat peta</a></div>' +
+      '<div class="row between" style="margin-bottom:6px;"><span style="font-weight:600;font-size:14px;">'+esc(store.name)+'</span><a class="link mono" href="'+mapsLink+'" target="_blank" rel="noreferrer">lihat peta</a></div>' +
+      '<div class="xs muted" style="margin-bottom:8px;">📍 '+kecLabel+', '+kotaLabel+'</div>' +
+      '<div class="row gap6" style="margin-bottom:8px;flex-wrap:wrap;">' +
+        '<input class="input xs" style="flex:1;min-width:110px;padding:6px 8px;" id="kec_'+esc(key)+'" placeholder="Kecamatan" value="'+esc(store.kecamatan||'')+'">' +
+        '<input class="input xs" style="flex:1;min-width:110px;padding:6px 8px;" id="kota_'+esc(key)+'" placeholder="Kota/Kabupaten" value="'+esc(store.kota||'')+'">' +
+        '<button class="btn btn-outline btn-sm" style="flex-shrink:0;" data-action="saveLocationLabels" data-key="'+esc(key)+'">Simpan</button>' +
+      '</div>' +
       '<div class="row gap8">' +
         '<label class="xs muted" style="flex-shrink:0;">Radius</label>' +
         '<input type="number" min="10" class="input mono xs" style="width:70px;padding:6px 8px;" id="radius_'+esc(key)+'" value="'+radiusVal+'">' +
@@ -813,9 +825,10 @@ var Actions = {
           finalizeCheckin(pos, store.name, {distanceMeters:distance, outOfRadius:false});
         } else {
           var newStores = Object.assign({}, stores);
-          newStores[key] = {name:storeName, lat:pos.lat, lng:pos.lng, radius:DEFAULT_RADIUS, createdBy:S.session.name, createdAt:new Date().toISOString()};
+          newStores[key] = {name:storeName, lat:pos.lat, lng:pos.lng, radius:DEFAULT_RADIUS, kecamatan:'', kota:'', createdBy:S.session.name, createdAt:new Date().toISOString()};
           saveStores(newStores).then(function(){
             finalizeCheckin(pos, storeName, {distanceMeters:0, outOfRadius:false, isNewStore:true});
+            geocodeStoreBestEffort(key, pos.lat, pos.lng);
           }).catch(function(e){ setState({busy:false, gpsError:'Gagal menyimpan lokasi toko: '+(e&&e.message?e.message:'terjadi kesalahan')}); });
         }
       }).catch(function(e){ setState({busy:false, gpsError:'Gagal memuat data toko: '+(e&&e.message?e.message:'terjadi kesalahan')}); });
@@ -885,6 +898,15 @@ var Actions = {
   refreshVisits: function(){ refreshVisitsSilent().then(function(){ render(); }); },
 
   reloadStores: function(){ loadStores().then(function(stores){ S.storesCache=stores; render(); }); },
+  saveLocationLabels: function(el){
+    var key=el.getAttribute('data-key');
+    var kec=document.getElementById('kec_'+key);
+    var kota=document.getElementById('kota_'+key);
+    var stores=Object.assign({}, S.storesCache);
+    stores[key]=Object.assign({}, stores[key], {kecamatan:(kec?kec.value.trim():''), kota:(kota?kota.value.trim():'')});
+    saveStores(stores).then(function(){ S.storesCache=stores; showToast('✓ Kecamatan/Kota tersimpan.', false); render(); }).catch(alertSaveError);
+  },
+
   saveRadius: function(el){
     var key=el.getAttribute('data-key');
     var input=document.getElementById('radius_'+key);
@@ -964,6 +986,24 @@ function syncOrderItemsFromDOM(){
     if(!S.orderItems[idx]) return;
     S.orderItems[idx][field] = field==='product' ? f.value : f.value;
   });
+}
+
+function geocodeStoreBestEffort(storeKey, lat, lng){
+  // Runs quietly in the background after check-in already succeeded; failures are non-fatal.
+  fetch('/api/geocode?lat='+encodeURIComponent(lat)+'&lng='+encodeURIComponent(lng))
+    .then(function(res){ return res.ok ? res.json() : null; })
+    .then(function(data){
+      if(!data || (!data.kecamatan && !data.kota)) return;
+      return loadStores().then(function(stores){
+        if(!stores[storeKey]) return; // store may have been reset/removed meanwhile
+        var updated = Object.assign({}, stores);
+        updated[storeKey] = Object.assign({}, updated[storeKey], {kecamatan: data.kecamatan||'', kota: data.kota||''});
+        return saveStores(updated).then(function(){
+          if(S.storesCache) { S.storesCache = updated; render(); }
+        });
+      });
+    })
+    .catch(function(e){ console.warn('gagal deteksi kecamatan/kota (tidak fatal)', e); });
 }
 
 function finalizeCheckin(pos, storeName, meta){
