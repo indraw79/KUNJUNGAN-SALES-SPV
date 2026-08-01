@@ -1098,6 +1098,15 @@ function enterApp(session){
   }, 8000);
 }
 
+window.addEventListener('error', function(e){
+  console.error('Global error:', e.error || e.message);
+  showToast('⚠ Error: ' + (e.message || 'terjadi kesalahan') + ' (baris ' + (e.lineno||'?') + ')', true);
+});
+window.addEventListener('unhandledrejection', function(e){
+  console.error('Unhandled rejection:', e.reason);
+  showToast('⚠ Error (promise): ' + (e.reason && e.reason.message ? e.reason.message : String(e.reason)), true);
+});
+
 initAuth();
 })();
 </script>
