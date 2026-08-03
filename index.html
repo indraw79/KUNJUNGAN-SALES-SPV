@@ -301,7 +301,7 @@ var S = {
   outOfRadius:null,
   orderFormOpen:false, orderItems:[], orderNotes:'',
   riwayatFilter:'week', riwayatStart:'', riwayatEnd:'',
-  dashTab:'visits', dashFilter:'today', dashStart:'', dashEnd:'', expandedSales:null,
+  dashTab:'visits', dashFilter:'today', dashStart:'', dashEnd:'', expandedSales:null, expandedVisit:null,
   storeRadiusDrafts:{},
   users:{}, resetKey:null, confirmReset:null,
   setupDraft:{},
@@ -508,7 +508,7 @@ function screenSales(){
     html += '<button class="btn btn-dark btn-sm" style="margin:8px 0 16px;" data-action="exportRiwayat" '+(riwayat.length===0?'disabled':'')+'>⬇ Export CSV ('+riwayat.length+' kunjungan)</button>';
     html += dailySummaryHTML(riwayat);
     if(riwayat.length===0){ html += '<p class="small muted">Tidak ada kunjungan pada periode ini.</p>'; }
-    else { html += riwayat.map(function(v){ return visitRowHTML(v,false,S.expandedSales); }).join(''); }
+    else { html += riwayat.map(function(v){ return visitRowHTML(v,false,S.expandedVisit); }).join(''); }
     html += '</div>';
   }
   html += '</div>';
@@ -611,7 +611,7 @@ function screenDashboard(){
       '</button>';
       if(open){
         html += '<div style="padding:0 16px 16px;border-top:1px solid #EFEBE2;padding-top:12px;">';
-        html += list.sort(function(a,b){ return new Date(b.checkinTime)-new Date(a.checkinTime); }).map(function(v){ return visitRowHTML(v,false,S.expandedVisitId); }).join('');
+        html += list.sort(function(a,b){ return new Date(b.checkinTime)-new Date(a.checkinTime); }).map(function(v){ return visitRowHTML(v,false,S.expandedVisit); }).join('');
         html += '</div>';
       }
       html += '</div>';
@@ -807,7 +807,7 @@ var Actions = {
   logout: function(){
     if(S.timerHandle){ clearInterval(S.timerHandle); S.timerHandle=null; }
     clearSessionLocal();
-    setState({session:null, screen:'login', errorMsg:'', salesTab:'home', checkinStage:'idle', dashTab:'visits', expandedSales:null});
+    setState({session:null, screen:'login', errorMsg:'', salesTab:'home', checkinStage:'idle', dashTab:'visits', expandedSales:null, expandedVisit:null});
   },
 
   setSalesTab: function(el){ setState({salesTab: el.getAttribute('data-val')}); },
@@ -894,7 +894,7 @@ var Actions = {
     });
   },
 
-  toggleVisit: function(el){ var id=el.getAttribute('data-id'); setState({expandedSales: S.expandedSales===id?null:id}); },
+  toggleVisit: function(el){ var id=el.getAttribute('data-id'); setState({expandedVisit: S.expandedVisit===id?null:id}); },
   setFilter: function(el){
     var prefix=el.getAttribute('data-prefix'), val=el.getAttribute('data-val');
     if(prefix==='riwayat') setState({riwayatFilter:val});
