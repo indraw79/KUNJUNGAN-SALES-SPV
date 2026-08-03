@@ -316,9 +316,9 @@ function filterChipsHTML(prefix, current, start, end){
   var chips = opts.map(function(o){ return '<button class="chip '+(current===o[0]?'active':'')+'" data-action="setFilter" data-prefix="'+prefix+'" data-val="'+o[0]+'">'+o[1]+'</button>'; }).join('');
   var customRow = current==='custom' ? (
     '<div class="row gap8" style="margin-top:8px;">' +
-    '<input type="date" class="input mono xs" style="width:auto;padding:7px 10px;" id="'+prefix+'Start" value="'+(start||'')+'" data-action="setDateRange" data-prefix="'+prefix+'" data-which="start">' +
+    '<input type="date" class="input mono xs" style="width:auto;padding:7px 10px;" id="'+prefix+'Start" value="'+(start||'')+'" data-daterange-prefix="'+prefix+'" data-daterange-which="start">' +
     '<span class="muted xs">s/d</span>' +
-    '<input type="date" class="input mono xs" style="width:auto;padding:7px 10px;" id="'+prefix+'End" value="'+(end||'')+'" data-action="setDateRange" data-prefix="'+prefix+'" data-which="end">' +
+    '<input type="date" class="input mono xs" style="width:auto;padding:7px 10px;" id="'+prefix+'End" value="'+(end||'')+'" data-daterange-prefix="'+prefix+'" data-daterange-which="end">' +
     '</div>'
   ) : '';
   return '<div class="row gap6" style="flex-wrap:wrap;margin-bottom:8px;">'+chips+'</div>'+customRow;
@@ -893,7 +893,7 @@ var Actions = {
     else setState({dashFilter:val});
   },
   setDateRange: function(el){
-    var prefix=el.getAttribute('data-prefix'), which=el.getAttribute('data-which'), val=el.value;
+    var prefix=el.getAttribute('data-daterange-prefix'), which=el.getAttribute('data-daterange-which'), val=el.value;
     var patch={};
     if(prefix==='riwayat') patch[which==='start'?'riwayatStart':'riwayatEnd']=val;
     else patch[which==='start'?'dashStart':'dashEnd']=val;
@@ -1051,7 +1051,7 @@ document.getElementById('app').addEventListener('click', function(e){
   if(Actions[action]) Actions[action](el);
 });
 document.getElementById('app').addEventListener('change', function(e){
-  var el = e.target.closest('[data-action="setDateRange"]');
+  var el = e.target.closest('[data-daterange-prefix]');
   if(el) Actions.setDateRange(el);
   if(e.target.id === 'importUserFile'){
     var file = e.target.files && e.target.files[0];
