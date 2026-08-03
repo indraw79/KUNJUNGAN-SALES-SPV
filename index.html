@@ -163,26 +163,34 @@ function haversineMeters(lat1,lng1,lat2,lng2){
   return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
 }
 function getPosition(){
-  return new Promise(function(resolve){
-    if(!navigator.geolocation){ resolve({error:'Perangkat/browser ini tidak mendukung GPS.'}); return; }
-    navigator.geolocation.getCurrentPosition(
-      function(p){ resolve({lat:p.coords.latitude, lng:p.coords.longitude}); },
-      function(err){
-        var msg;
-        if(err.code === 1){ // PERMISSION_DENIED
-          msg = 'Izin lokasi ditolak/belum diaktifkan. Cara mengaktifkan: ketuk ikon 🔒 atau (i) di sebelah alamat website di atas → cari "Lokasi"/"Location" → pilih "Izinkan"/"Allow". Setelah itu coba Check-in lagi.';
-        } else if(err.code === 2){ // POSITION_UNAVAILABLE
-          msg = 'Lokasi GPS tidak dapat dideteksi. Pastikan GPS di HP menyala dan coba lagi di tempat yang lebih terbuka.';
-        } else if(err.code === 3){ // TIMEOUT
-          msg = 'Waktu tunggu mengambil lokasi habis. Pastikan sinyal GPS/internet cukup kuat, lalu coba lagi.';
-        } else {
-          msg = 'Gagal mengambil lokasi (' + (err.message || 'kesalahan tidak diketahui') + '). Coba lagi.';
-        }
-        resolve({error: msg});
-      },
-      {enableHighAccuracy:true, timeout:10000}
-    );
-  });
+  function attempt(opts){
+    return new Promise(function(resolve, reject){
+      if(!navigator.geolocation){ reject({code:0, message:'Perangkat/browser ini tidak mendukung GPS.'}); return; }
+      navigator.geolocation.getCurrentPosition(
+        function(p){ resolve({lat:p.coords.latitude, lng:p.coords.longitude}); },
+        function(err){ reject(err); },
+        opts
+      );
+    });
+  }
+  function toFriendly(err){
+    if(err.code === 1){ // PERMISSION_DENIED
+      return 'Izin lokasi ditolak/belum diaktifkan. Cara mengaktifkan: ketuk ikon 🔒 atau (i) di sebelah alamat website di atas → cari "Lokasi"/"Location" → pilih "Izinkan"/"Allow". Setelah itu coba Check-in lagi.';
+    } else if(err.code === 2){ // POSITION_UNAVAILABLE
+      return 'Lokasi GPS tidak dapat dideteksi. Pastikan GPS di HP menyala dan coba lagi di tempat yang lebih terbuka.';
+    } else if(err.code === 3){ // TIMEOUT
+      return 'Sinyal GPS lemah (sering terjadi di dalam ruangan). Sudah dicoba beberapa kali, tetap gagal. Coba pindah lebih dekat jendela/pintu, atau coba lagi sesaat lagi.';
+    }
+    return 'Gagal mengambil lokasi (' + (err.message || 'kesalahan tidak diketahui') + '). Coba lagi.';
+  }
+  // First attempt: high accuracy (best for radius check), generous timeout for weak indoor GPS signal.
+  return attempt({enableHighAccuracy:true, timeout:18000, maximumAge:0}).catch(function(err){
+    if(err.code === 1) return Promise.reject(err); // permission denied: no point retrying
+    // Fallback: allow a recent cached fix or network/WiFi-based positioning, which resolves much faster indoors.
+    return attempt({enableHighAccuracy:false, timeout:12000, maximumAge:60000}).catch(function(err2){
+      return Promise.reject(err2);
+    });
+  }).then(function(pos){ return pos; }, function(err){ return {error: toFriendly(err)}; });
 }
 function sha256Hex(str){
   var enc=new TextEncoder().encode(str);
