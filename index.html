@@ -353,11 +353,12 @@ function dailySummaryHTML(visits){
   return '<div class="card" style="margin-bottom:16px;"><h4 class="xs muted" style="text-transform:uppercase;letter-spacing:.03em;margin:0 0 12px;">Ringkasan harian</h4>'+rows+'</div>';
 }
 function visitRowHTML(v, showSales, openId){
-  var open = openId===v.id;
+  var rowKey = v.id || (v.storeName+'|'+v.checkinTime);
+  var open = openId===rowKey;
   var total=orderTotalOf(v);
   var mapsLink = v.checkinLat ? ('https://www.google.com/maps?q='+v.checkinLat+','+v.checkinLng) : null;
   var dotColor = v.status==='active' ? 'var(--accent)' : (v.checkinOutOfRadius ? 'var(--danger)' : 'var(--success)');
-  var head = '<button class="row gap8" data-action="toggleVisit" data-id="'+v.id+'" style="width:100%;text-align:left;border:none;background:none;padding:14px;">' +
+  var head = '<button class="row gap8" data-action="toggleVisit" data-id="'+esc(rowKey)+'" style="width:100%;text-align:left;border:none;background:none;padding:14px;">' +
     '<span class="dot" style="background:'+dotColor+';"></span>' +
     '<div style="flex:1;min-width:0;">' +
       '<div class="row gap6" style="flex-wrap:wrap;">' +
