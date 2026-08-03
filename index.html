@@ -302,6 +302,7 @@ var S = {
   orderFormOpen:false, orderItems:[], orderNotes:'',
   riwayatFilter:'week', riwayatStart:'', riwayatEnd:'',
   dashTab:'visits', dashFilter:'today', dashStart:'', dashEnd:'', expandedSales:null, expandedVisit:null,
+  editingVisit:null, editOrderItems:[],
   storeRadiusDrafts:{},
   users:{}, resetKey:null, confirmReset:null,
   setupDraft:{},
@@ -387,6 +388,9 @@ function visitRowHTML(v, showSales, openId){
       detail += '</div>';
     }
     if(v.notes){ detail += '<div style="margin-top:10px;"><div class="xs muted" style="margin-bottom:2px;">Catatan</div><p class="xs" style="margin:0;">'+esc(v.notes)+'</p></div>'; }
+    if(v.status==='done' && S.session && (S.session.role==='owner' || S.session.role==='supervisor')){
+      detail += '<button class="btn btn-outline btn-sm" style="margin-top:12px;" data-action="openEditVisit" data-checkin="'+esc(v.checkinTime)+'" data-sales="'+esc(v.salesName)+'">✏️ Edit Order/Pembayaran</button>';
+    }
     detail += '</div>';
   }
   return '<div class="card2" style="margin-bottom:8px;">'+head+detail+'</div>';
@@ -549,6 +553,40 @@ function orderFormModal(active){
     '</div></div>';
 }
 
+function editVisitModal(visit){
+  var items = S.editOrderItems;
+  var total = items.reduce(function(s,i){ return s+(Number(i.qty)||0)*(Number(i.price)||0); },0);
+  var rows = items.map(function(it, idx){
+    return '<div class="row gap6" style="background:#fff;border:1px solid var(--border);border-radius:12px;padding:8px;margin-bottom:8px;align-items:center;">' +
+      '<input class="input" style="flex:1;min-width:0;padding:8px 10px;" placeholder="Nama produk" value="'+esc(it.product)+'" data-editorder-field="product" data-idx="'+idx+'">' +
+      '<input type="number" min="1" class="input mono" style="width:56px;padding:8px 6px;text-align:center;" value="'+it.qty+'" data-editorder-field="qty" data-idx="'+idx+'">' +
+      '<input type="number" min="0" class="input mono" style="width:90px;padding:8px 6px;" placeholder="Harga" value="'+(it.price||'')+'" data-editorder-field="price" data-idx="'+idx+'">' +
+      (items.length>1 ? '<button data-action="removeEditOrderItem" data-idx="'+idx+'" style="background:none;border:none;color:var(--danger);padding:4px;">✕</button>' : '') +
+    '</div>';
+  }).join('');
+  return '<div class="modal-overlay" data-action="noop">' +
+    '<div class="modal-sheet">' +
+      '<div class="sticky-top row between">' +
+        '<div><div class="xs mono muted" style="text-transform:uppercase;">Edit Kunjungan</div><h2 class="display" style="font-size:17px;color:var(--primary);margin:2px 0 0;">'+esc(visit.storeName)+'</h2><div class="xs muted mono">'+esc(visit.salesName)+' · '+esc(fmtDate(visit.checkinTime))+'</div></div>' +
+        '<button data-action="closeEditVisit" style="background:none;border:none;font-size:18px;color:var(--muted);">✕</button>' +
+      '</div>' +
+      '<div class="p20" style="padding:16px 20px;">' +
+        '<div style="background:var(--danger-bg);border:1px solid #C1502E30;border-radius:10px;padding:10px 12px;margin-bottom:16px;"><p class="xs" style="margin:0;color:var(--danger);">⚠ Perubahan di sini menimpa data order/pembayaran asli. Gunakan untuk mengoreksi kesalahan input, bukan untuk mengubah laporan sales secara tidak semestinya.</p></div>' +
+        '<div class="row between" style="margin-bottom:8px;"><label class="lbl" style="margin:0;">📦 Order</label><button class="link" style="border:none;background:none;font-weight:600;" data-action="addEditOrderItem">+ Tambah item</button></div>' +
+        rows +
+        '<div class="xs mono muted" style="text-align:right;margin-bottom:16px;">Total order: <b style="color:var(--primary);">'+rp(total)+'</b></div>' +
+        '<label class="lbl">💰 Pembayaran nota diterima</label>' +
+        '<input type="number" min="0" class="input mono" id="editPayment" placeholder="0" value="'+(visit.payment||'')+'" style="margin-bottom:16px;">' +
+        '<label class="lbl">Catatan (opsional)</label>' +
+        '<textarea class="input" id="editNotesInput" rows="2" placeholder="cth. toko tutup lebih awal, follow up minggu depan...">'+esc(visit.notes||'')+'</textarea>' +
+      '</div>' +
+      '<div class="sticky-bottom">' +
+        '<button class="btn btn-outline" style="flex:1;" data-action="closeEditVisit">Batal</button>' +
+        '<button class="btn btn-dark" style="flex:1;" data-action="submitEditVisit" '+(S.busy?'disabled':'')+'>Simpan Perubahan</button>' +
+      '</div>' +
+    '</div></div>';
+}
+
 /* ---------------- DASHBOARD screen ---------------- */
 function screenDashboard(){
   var role = S.session.role;
@@ -564,6 +602,7 @@ function screenDashboard(){
   var tabs = role==='owner' ? [['visits','Kunjungan'],['stores','Kelola Toko'],['users','Kelola User']] : [['visits','Kunjungan'],['stores','Kelola Toko']];
 
   var html = '<div class="screen">';
+  if(S.editingVisit) html += editVisitModal(S.editingVisit);
   html += '<div class="header" style="padding-bottom:28px;">' +
     '<div class="row between">' +
       '<div class="row gap8"><div style="width:32px;height:32px;border-radius:10px;background:rgba(255,255,255,.1);display:flex;align-items:center;justify-content:center;">'+(role==='owner'?'🛡':'👥')+'</div><div><div style="font-weight:600;font-size:14px;">'+(role==='owner'?'Owner':'Supervisor')+'</div><div class="xs mono" style="color:rgba(255,255,255,.5);">@'+esc(S.session.username)+'</div></div></div>' +
@@ -895,6 +934,39 @@ var Actions = {
     });
   },
 
+  openEditVisit: function(el){
+    var checkin = el.getAttribute('data-checkin');
+    var sales = el.getAttribute('data-sales');
+    var visit = S.visits.filter(function(v){ return v.checkinTime===checkin && v.salesName===sales; })[0];
+    if(!visit) return;
+    var items = (visit.orders && visit.orders.length) ? visit.orders.map(function(o){ return {id:o.id||uid(), product:o.product, qty:o.qty, price:o.price}; }) : [{id:uid(), product:'', qty:1, price:0}];
+    setState({editingVisit: visit, editOrderItems: items});
+  },
+  closeEditVisit: function(){ setState({editingVisit:null, editOrderItems:[]}); },
+  addEditOrderItem: function(){ syncEditOrderItemsFromDOM(); S.editOrderItems.push({id:uid(), product:'', qty:1, price:0}); render(); },
+  removeEditOrderItem: function(el){ syncEditOrderItemsFromDOM(); var idx=Number(el.getAttribute('data-idx')); S.editOrderItems.splice(idx,1); render(); },
+  submitEditVisit: function(){
+    syncEditOrderItemsFromDOM();
+    var paymentEl = document.getElementById('editPayment');
+    var notesEl = document.getElementById('editNotesInput');
+    var payment = Number(paymentEl ? paymentEl.value : 0) || 0;
+    var notes = notesEl ? notesEl.value : '';
+    var orders = S.editOrderItems.filter(function(i){ return i.product.trim(); }).map(function(i){ return {id:i.id, product:i.product, qty:Number(i.qty)||0, price:Number(i.price)||0}; });
+    var target = S.editingVisit;
+    if(!target) return;
+    setState({busy:true});
+    loadVisits().then(function(all){
+      var updated = all.map(function(v){
+        if(v.checkinTime!==target.checkinTime || v.salesName!==target.salesName) return v;
+        return Object.assign({}, v, {orders:orders, payment:payment, notes:notes});
+      });
+      return saveVisits(updated).then(function(){ return refreshVisitsSilent(); });
+    }).then(function(){
+      setState({busy:false, editingVisit:null, editOrderItems:[]});
+      showToast('✓ Kunjungan berhasil diperbarui.', false);
+    }).catch(function(e){ setState({busy:false}); alertSaveError(e); });
+  },
+
   toggleVisit: function(el){ var id=el.getAttribute('data-id'); setState({expandedVisit: S.expandedVisit===id?null:id}); },
   setFilter: function(el){
     var prefix=el.getAttribute('data-prefix'), val=el.getAttribute('data-val');
@@ -1009,6 +1081,15 @@ function syncOrderItemsFromDOM(){
     var field=f.getAttribute('data-order-field');
     if(!S.orderItems[idx]) return;
     S.orderItems[idx][field] = field==='product' ? f.value : f.value;
+  });
+}
+function syncEditOrderItemsFromDOM(){
+  var fields = document.querySelectorAll('[data-editorder-field]');
+  fields.forEach(function(f){
+    var idx=Number(f.getAttribute('data-idx'));
+    var field=f.getAttribute('data-editorder-field');
+    if(!S.editOrderItems[idx]) return;
+    S.editOrderItems[idx][field] = f.value;
   });
 }
 
