@@ -370,7 +370,10 @@ function visitRowHTML(v, showSales, openId){
       '<div class="xs muted mono" style="margin-top:2px;">' + (showSales?esc(v.salesName)+' · ':'') + esc(fmtDate(v.checkinTime))+' · '+fmtTime(v.checkinTime)+'–'+(v.checkoutTime?fmtTime(v.checkoutTime):'...')+' · '+durationLabel(v.durationMinutes) +
       '</div>' +
     '</div>' +
-    '<span class="mono xs" style="font-weight:600;color:var(--primary);flex-shrink:0;">'+rp(v.payment)+'</span>' +
+    '<div class="mono xs" style="text-align:right;flex-shrink:0;line-height:1.5;">' +
+      '<div style="color:var(--primary);font-weight:600;">'+rp(total)+' <span class="muted" style="font-weight:400;">order</span></div>' +
+      '<div style="color:#2F5B3B;">'+rp(v.payment)+' <span class="muted" style="font-weight:400;">bayar</span></div>' +
+    '</div>' +
     '</button>';
   var detail='';
   if(open){
