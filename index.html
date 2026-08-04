@@ -90,7 +90,7 @@ function withTimeout(p, ms){ ms = ms || 15000;
   return Promise.race([p, new Promise(function(_,rej){ setTimeout(function(){ rej(new Error('Waktu tunggu server habis')); }, ms); })]);
 }
 function apiGet(key){
-  return fetch('/api/kv?key='+encodeURIComponent(key)).then(function(res){
+  return fetch('/api/kv?key='+encodeURIComponent(key), {cache:'no-store'}).then(function(res){
     if(res.status===404) return null;
     if(!res.ok) throw new Error('Gagal memuat data dari server (status '+res.status+')');
     return res.json().then(function(data){ return data.value; });
@@ -106,7 +106,7 @@ function apiSet(key, value){
 }
 
 function loadVisits(){
-  return withTimeout(fetch('/api/visits').then(function(res){
+  return withTimeout(fetch('/api/visits', {cache:'no-store'}).then(function(res){
     if(!res.ok) throw new Error('Gagal memuat data kunjungan (status '+res.status+')');
     return res.json();
   })).then(function(data){ return data.visits || []; })
