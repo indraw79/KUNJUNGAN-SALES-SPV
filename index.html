@@ -319,6 +319,7 @@ var S = {
   riwayatFilter:'week', riwayatStart:'', riwayatEnd:'',
   dashTab:'visits', dashFilter:'today', dashStart:'', dashEnd:'', expandedSales:null, expandedVisit:null,
   editingVisit:null, editOrderItems:[],
+  manualEntryOpen:false, manualOrderItems:[],
   storeRadiusDrafts:{},
   users:{}, resetKey:null, confirmReset:null,
   setupDraft:{},
@@ -381,6 +382,7 @@ function visitRowHTML(v, showSales, openId){
       '<div class="row gap6" style="flex-wrap:wrap;">' +
         '<span style="font-weight:600;font-size:14px;">'+esc(v.storeName)+'</span>' +
         (v.checkinOutOfRadius ? badge('⚠ luar radius','warn') : '') +
+        (v.isManualEntry ? badge('📝 manual','neutral') : '') +
         badge(v.status==='active'?'Berlangsung':'Selesai', v.status==='active'?'active':'done') +
       '</div>' +
       '<div class="xs muted mono" style="margin-top:2px;">' + (showSales?esc(v.salesName)+' · ':'') + esc(fmtDate(v.checkinTime))+' · '+fmtTime(v.checkinTime)+'–'+(v.checkoutTime?fmtTime(v.checkoutTime):'...')+' · '+durationLabel(v.durationMinutes) +
@@ -400,6 +402,9 @@ function visitRowHTML(v, showSales, openId){
     detail += '</div>';
     if(v.checkinOutOfRadius && v.checkinOverrideReason){
       detail += '<div style="background:var(--danger-bg);border:1px solid #C1502E40;border-radius:10px;padding:10px;margin-top:10px;"><div class="xs" style="color:var(--danger);font-weight:600;margin-bottom:2px;">⚠ Alasan override lokasi</div><p class="xs" style="margin:0;">'+esc(v.checkinOverrideReason)+'</p></div>';
+    }
+    if(v.isManualEntry){
+      detail += '<div class="xs muted" style="margin-top:10px;">📝 Kunjungan ini dicatat manual oleh <b>'+esc(v.enteredBy||'-')+'</b> (bukan hasil check-in GPS langsung).</div>';
     }
     if((v.orders||[]).length>0){
       detail += '<div style="margin-top:10px;"><div class="xs muted" style="margin-bottom:6px;">Order ('+v.orders.length+' item · '+rp(total)+')</div>';
@@ -606,6 +611,54 @@ function editVisitModal(visit){
     '</div></div>';
 }
 
+function manualEntryModal(){
+  var items = S.manualOrderItems;
+  var total = items.reduce(function(s,i){ return s+(Number(i.qty)||0)*(Number(i.price)||0); },0);
+  var rows = items.map(function(it, idx){
+    return '<div class="row gap6" style="background:#fff;border:1px solid var(--border);border-radius:12px;padding:8px;margin-bottom:8px;align-items:center;">' +
+      '<input class="input" style="flex:1;min-width:0;padding:8px 10px;" placeholder="Nama produk" value="'+esc(it.product)+'" data-manualorder-field="product" data-idx="'+idx+'">' +
+      '<input type="number" min="1" class="input mono" style="width:56px;padding:8px 6px;text-align:center;" value="'+it.qty+'" data-manualorder-field="qty" data-idx="'+idx+'">' +
+      '<input type="number" min="0" class="input mono" style="width:90px;padding:8px 6px;" placeholder="Harga" value="'+(it.price||'')+'" data-manualorder-field="price" data-idx="'+idx+'">' +
+      (items.length>1 ? '<button data-action="removeManualOrderItem" data-idx="'+idx+'" style="background:none;border:none;color:var(--danger);padding:4px;">✕</button>' : '') +
+    '</div>';
+  }).join('');
+  var salesOptions = Object.keys(S.users).sort(function(a,b){ return S.users[a].displayName.localeCompare(S.users[b].displayName); })
+    .map(function(k){ return '<option value="'+esc(S.users[k].displayName)+'">'+esc(S.users[k].displayName)+' ('+S.users[k].role+')</option>'; }).join('');
+  var storeOptions = Object.values(S.storesCache||{}).map(function(s){ return '<option value="'+esc(s.name)+'">'; }).join('');
+  var todayStr = new Date().toISOString().slice(0,16);
+  return '<div class="modal-overlay" data-action="noop">' +
+    '<div class="modal-sheet">' +
+      '<div class="sticky-top row between">' +
+        '<div><div class="xs mono muted" style="text-transform:uppercase;">Kunjungan Manual</div><h2 class="display" style="font-size:17px;color:var(--primary);margin:2px 0 0;">Catat kunjungan yang tidak sempat tercatat</h2></div>' +
+        '<button data-action="closeManualEntry" style="background:none;border:none;font-size:18px;color:var(--muted);">✕</button>' +
+      '</div>' +
+      '<div class="p20" style="padding:16px 20px;">' +
+        '<div style="background:var(--light,#F2EFE8);background:#EFEBE2;border-radius:10px;padding:10px 12px;margin-bottom:16px;"><p class="xs muted" style="margin:0;">Gunakan ini hanya untuk mencatat kunjungan nyata yang gagal tersimpan otomatis (misal karena kendala teknis). Tidak ada validasi GPS pada entri manual.</p></div>' +
+        '<label class="lbl">Nama Sales</label>' +
+        '<select class="input" id="manualSalesName" style="margin-bottom:12px;"><option value="">— pilih sales —</option>'+salesOptions+'</select>' +
+        '<label class="lbl">Nama Toko</label>' +
+        '<input class="input" id="manualStoreName" list="manualStoreSuggestions" placeholder="cth. Toko Sumber Jaya" style="margin-bottom:4px;">' +
+        '<datalist id="manualStoreSuggestions">'+storeOptions+'</datalist>' +
+        '<p class="xs muted" style="margin:0 0 12px;">Lokasi GPS tidak dicatat untuk entri manual.</p>' +
+        '<div class="grid2" style="margin-bottom:16px;">' +
+          '<div><label class="lbl">Jam Masuk</label><input type="datetime-local" class="input mono xs" id="manualCheckin" value="'+todayStr+'"></div>' +
+          '<div><label class="lbl">Jam Keluar</label><input type="datetime-local" class="input mono xs" id="manualCheckout" value="'+todayStr+'"></div>' +
+        '</div>' +
+        '<div class="row between" style="margin-bottom:8px;"><label class="lbl" style="margin:0;">📦 Order (opsional)</label><button class="link" style="border:none;background:none;font-weight:600;" data-action="addManualOrderItem">+ Tambah item</button></div>' +
+        rows +
+        '<div class="xs mono muted" style="text-align:right;margin-bottom:16px;">Total order: <b style="color:var(--primary);">'+rp(total)+'</b></div>' +
+        '<label class="lbl">💰 Pembayaran nota diterima</label>' +
+        '<input type="number" min="0" class="input mono" id="manualPayment" placeholder="0" style="margin-bottom:16px;">' +
+        '<label class="lbl">Catatan (opsional)</label>' +
+        '<textarea class="input" id="manualNotesInput" rows="2" placeholder="cth. dicatat manual karena kendala jaringan tanggal ..."></textarea>' +
+      '</div>' +
+      '<div class="sticky-bottom">' +
+        '<button class="btn btn-outline" style="flex:1;" data-action="closeManualEntry">Batal</button>' +
+        '<button class="btn btn-dark" style="flex:1;" data-action="submitManualEntry" '+(S.busy?'disabled':'')+'>Simpan Kunjungan</button>' +
+      '</div>' +
+    '</div></div>';
+}
+
 /* ---------------- DASHBOARD screen ---------------- */
 function screenDashboard(){
   var role = S.session.role;
@@ -622,6 +675,7 @@ function screenDashboard(){
 
   var html = '<div class="screen">';
   if(S.editingVisit) html += editVisitModal(S.editingVisit);
+  if(S.manualEntryOpen) html += manualEntryModal();
   html += '<div class="header" style="padding-bottom:28px;">' +
     '<div class="row between">' +
       '<div class="row gap8"><div style="width:32px;height:32px;border-radius:10px;background:rgba(255,255,255,.1);display:flex;align-items:center;justify-content:center;">'+(role==='owner'?'🛡':'👥')+'</div><div><div style="font-weight:600;font-size:14px;">'+(role==='owner'?'Owner':'Supervisor')+'</div><div class="xs mono" style="color:rgba(255,255,255,.5);">@'+esc(S.session.username)+'</div></div></div>' +
@@ -636,7 +690,10 @@ function screenDashboard(){
 
   if(S.dashTab==='visits'){
     html += filterChipsHTML('dash', S.dashFilter, S.dashStart, S.dashEnd);
-    html += '<button class="btn btn-dark btn-sm" style="margin:8px 0 16px;" data-action="exportDash" '+(scoped.length===0?'disabled':'')+'>⬇ Export CSV ('+scoped.length+' kunjungan)</button>';
+    html += '<div class="row gap8" style="margin:8px 0 16px;flex-wrap:wrap;">' +
+      '<button class="btn btn-dark btn-sm" data-action="exportDash" '+(scoped.length===0?'disabled':'')+'>⬇ Export CSV ('+scoped.length+' kunjungan)</button>' +
+      '<button class="btn btn-outline btn-sm" data-action="openManualEntry">+ Tambah Kunjungan Manual</button>' +
+    '</div>';
     html += '<div class="grid2" style="margin-bottom:16px;">' +
       statCard('Kunjungan', totalVisits, activeNow+' sedang berlangsung') +
       statCard('Nilai order', rp(totalOrder)) +
@@ -978,6 +1035,49 @@ var Actions = {
     }).catch(function(e){ setState({busy:false}); alertSaveError(e); });
   },
 
+  openManualEntry: function(){ setState({manualEntryOpen:true, manualOrderItems:[{id:uid(), product:'', qty:1, price:0}]}); },
+  closeManualEntry: function(){ setState({manualEntryOpen:false, manualOrderItems:[]}); },
+  addManualOrderItem: function(){ syncManualOrderItemsFromDOM(); S.manualOrderItems.push({id:uid(), product:'', qty:1, price:0}); render(); },
+  removeManualOrderItem: function(el){ syncManualOrderItemsFromDOM(); var idx=Number(el.getAttribute('data-idx')); S.manualOrderItems.splice(idx,1); render(); },
+  submitManualEntry: function(){
+    var salesEl = document.getElementById('manualSalesName');
+    var storeEl = document.getElementById('manualStoreName');
+    var checkinEl = document.getElementById('manualCheckin');
+    var checkoutEl = document.getElementById('manualCheckout');
+    var paymentEl = document.getElementById('manualPayment');
+    var notesEl = document.getElementById('manualNotesInput');
+    var salesName = salesEl ? salesEl.value : '';
+    var storeName = storeEl ? storeEl.value.trim() : '';
+    var checkinVal = checkinEl ? checkinEl.value : '';
+    var checkoutVal = checkoutEl ? checkoutEl.value : '';
+    if(!salesName || !storeName || !checkinVal || !checkoutVal){
+      showToast('Lengkapi nama sales, nama toko, jam masuk, dan jam keluar.', true);
+      return;
+    }
+    var checkinTime = new Date(checkinVal).toISOString();
+    var checkoutTime = new Date(checkoutVal).toISOString();
+    var durationMinutes = (new Date(checkoutTime) - new Date(checkinTime)) / 60000;
+    if(durationMinutes < 0){ showToast('Jam keluar harus setelah jam masuk.', true); return; }
+    syncManualOrderItemsFromDOM();
+    var payment = Number(paymentEl ? paymentEl.value : 0) || 0;
+    var notes = notesEl ? notesEl.value : '';
+    var orders = S.manualOrderItems.filter(function(i){ return i.product.trim(); }).map(function(i){ return {id:i.id, product:i.product, qty:Number(i.qty)||0, price:Number(i.price)||0}; });
+    var newVisit = {
+      id: uid(), salesName: salesName, storeName: storeName,
+      checkinTime: checkinTime, checkinLat: null, checkinLng: null,
+      checkinDistanceMeters: null, checkinOutOfRadius: false, checkinOverrideReason: '', isNewStore: false,
+      checkoutTime: checkoutTime, checkoutLat: null, checkoutLng: null,
+      status: 'done', orders: orders, payment: payment, notes: notes,
+      durationMinutes: durationMinutes,
+      isManualEntry: true, enteredBy: S.session.name
+    };
+    setState({busy:true});
+    upsertVisit(newVisit).then(function(){ return refreshVisitsSilent(); }).then(function(){
+      setState({busy:false, manualEntryOpen:false, manualOrderItems:[]});
+      showToast('✓ Kunjungan manual berhasil ditambahkan.', false);
+    }).catch(function(e){ setState({busy:false}); alertSaveError(e); });
+  },
+
   toggleVisit: function(el){ var id=el.getAttribute('data-id'); setState({expandedVisit: S.expandedVisit===id?null:id}); },
   setFilter: function(el){
     var prefix=el.getAttribute('data-prefix'), val=el.getAttribute('data-val');
@@ -1101,6 +1201,15 @@ function syncEditOrderItemsFromDOM(){
     var field=f.getAttribute('data-editorder-field');
     if(!S.editOrderItems[idx]) return;
     S.editOrderItems[idx][field] = f.value;
+  });
+}
+function syncManualOrderItemsFromDOM(){
+  var fields = document.querySelectorAll('[data-manualorder-field]');
+  fields.forEach(function(f){
+    var idx=Number(f.getAttribute('data-idx'));
+    var field=f.getAttribute('data-manualorder-field');
+    if(!S.manualOrderItems[idx]) return;
+    S.manualOrderItems[idx][field] = f.value;
   });
 }
 
