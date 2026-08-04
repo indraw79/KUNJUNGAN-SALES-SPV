@@ -1313,6 +1313,8 @@ function enterApp(session){
       if(S.dashTab==='users' || S.dashTab==='stores') return; // avoid disrupting file pickers / forms on these tabs
       if(S.checkinStage==='entering' || S.checkinStage==='outOfRadius') return; // avoid wiping the check-in form while typing
       if(S.orderFormOpen) return; // avoid wiping the checkout/order form while filling it in
+      if(S.editingVisit) return; // avoid wiping the edit-visit form while filling it in
+      if(S.manualEntryOpen) return; // avoid wiping the manual entry form while filling it in
       render();
     });
   }, 8000);
