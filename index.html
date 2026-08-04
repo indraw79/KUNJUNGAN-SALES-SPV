@@ -106,10 +106,26 @@ function apiSet(key, value){
 }
 
 function loadVisits(){
-  return withTimeout(apiGet(VISITS_KEY)).then(function(v){ return v || []; })
+  return withTimeout(fetch('/api/visits').then(function(res){
+    if(!res.ok) throw new Error('Gagal memuat data kunjungan (status '+res.status+')');
+    return res.json();
+  })).then(function(data){ return data.visits || []; })
     .catch(function(e){ if(e && e.message==='Waktu tunggu server habis') throw e; return []; });
 }
-function saveVisits(v){ return withTimeout(apiSet(VISITS_KEY, v)).catch(function(e){ console.error('gagal simpan visits', e); throw e; }); }
+function upsertVisit(visit){
+  return withTimeout(fetch('/api/visits', {
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({visit:visit})
+  }).then(function(res){
+    if(!res.ok) throw new Error('Gagal menyimpan kunjungan (status '+res.status+')');
+    return res.json();
+  })).catch(function(e){ console.error('gagal simpan visit', e); throw e; });
+}
+function clearAllVisits(){
+  return withTimeout(fetch('/api/visits', {method:'DELETE'}).then(function(res){
+    if(!res.ok) throw new Error('Gagal menghapus data kunjungan (status '+res.status+')');
+    return res.json();
+  })).catch(function(e){ console.error('gagal hapus visits', e); throw e; });
+}
 function loadStores(){
   return withTimeout(apiGet(STORES_KEY)).then(function(v){ return v || {}; }).catch(function(){ return {}; });
 }
@@ -920,19 +936,16 @@ var Actions = {
     var payment = Number(paymentEl ? paymentEl.value : 0) || 0;
     var notes = notesEl ? notesEl.value : '';
     var orders = S.orderItems.filter(function(i){ return i.product.trim(); }).map(function(i){ return {id:i.id, product:i.product, qty:Number(i.qty)||0, price:Number(i.price)||0}; });
-    setState({busy:true});
     var mv = myVisits();
     var active = mv.filter(function(v){ return v.status==='active'; })[0];
+    if(!active) return;
+    setState({busy:true});
     getPosition().then(function(pos){
-      loadVisits().then(function(all){
-        var updated = all.map(function(v){
-          if(v.id!==active.id) return v;
-          var checkoutTime = new Date().toISOString();
-          var durationMinutes = (new Date(checkoutTime)-new Date(v.checkinTime))/60000;
-          return Object.assign({}, v, {checkoutTime:checkoutTime, checkoutLat:pos.lat||null, checkoutLng:pos.lng||null, status:'done', durationMinutes:durationMinutes, orders:orders, payment:payment, notes:notes});
-        });
-        return saveVisits(updated).then(function(){ return refreshVisitsSilent(); });
-      }).then(function(){ setState({busy:false, orderFormOpen:false}); })
+      if(pos.error){ setState({busy:false}); showToast('Gagal mengambil lokasi check-out: '+pos.error, true); return; }
+      var checkoutTime = new Date().toISOString();
+      var durationMinutes = (new Date(checkoutTime)-new Date(active.checkinTime))/60000;
+      var updatedVisit = Object.assign({}, active, {checkoutTime:checkoutTime, checkoutLat:pos.lat||null, checkoutLng:pos.lng||null, status:'done', durationMinutes:durationMinutes, orders:orders, payment:payment, notes:notes});
+      upsertVisit(updatedVisit).then(function(){ return refreshVisitsSilent(); }).then(function(){ setState({busy:false, orderFormOpen:false}); })
         .catch(function(e){ setState({busy:false}); alertSaveError(e); });
     });
   },
@@ -956,15 +969,10 @@ var Actions = {
     var notes = notesEl ? notesEl.value : '';
     var orders = S.editOrderItems.filter(function(i){ return i.product.trim(); }).map(function(i){ return {id:i.id, product:i.product, qty:Number(i.qty)||0, price:Number(i.price)||0}; });
     var target = S.editingVisit;
-    if(!target) return;
+    if(!target || !target.id) return;
     setState({busy:true});
-    loadVisits().then(function(all){
-      var updated = all.map(function(v){
-        if(v.checkinTime!==target.checkinTime || v.salesName!==target.salesName) return v;
-        return Object.assign({}, v, {orders:orders, payment:payment, notes:notes});
-      });
-      return saveVisits(updated).then(function(){ return refreshVisitsSilent(); });
-    }).then(function(){
+    var updatedVisit = Object.assign({}, target, {orders:orders, payment:payment, notes:notes});
+    upsertVisit(updatedVisit).then(function(){ return refreshVisitsSilent(); }).then(function(){
       setState({busy:false, editingVisit:null, editOrderItems:[]});
       showToast('✓ Kunjungan berhasil diperbarui.', false);
     }).catch(function(e){ setState({busy:false}); alertSaveError(e); });
@@ -1061,7 +1069,7 @@ var Actions = {
   cancelResetData: function(){ setState({confirmReset: null}); },
   confirmResetData: function(el){
     var kind = el.getAttribute('data-kind');
-    var task = kind==='visits' ? saveVisits([]) : saveStores({});
+    var task = kind==='visits' ? clearAllVisits() : saveStores({});
     task.then(function(){
       setState({confirmReset: null});
       if(kind==='visits'){ S.visits = []; }
@@ -1123,9 +1131,7 @@ function finalizeCheckin(pos, storeName, meta){
     checkoutTime:null, checkoutLat:null, checkoutLng:null,
     status:'active', orders:[], payment:0, notes:''
   };
-  loadVisits().then(function(all){
-    return saveVisits([newVisit].concat(all));
-  }).then(function(){ return refreshVisitsSilent(); }).then(function(){
+  upsertVisit(newVisit).then(function(){ return refreshVisitsSilent(); }).then(function(){
     setState({checkinStage:'idle', outOfRadius:null, busy:false});
   }).catch(function(e){
     setState({busy:false, gpsError:'Gagal menyimpan check-in: '+(e&&e.message?e.message:'terjadi kesalahan')+'. Coba lagi.'});
