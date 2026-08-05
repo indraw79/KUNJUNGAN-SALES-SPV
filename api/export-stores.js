@@ -4,6 +4,14 @@ import * as XLSX from 'xlsx';
 const redis = Redis.fromEnv();
 const COLS = [{ wch: 16 }, { wch: 18 }, { wch: 24 }, { wch: 10 }, { wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 30 }, { wch: 11 }, { wch: 11 }];
 
+function parseVal(v) {
+  if (v == null) return null;
+  if (typeof v === 'string') {
+    try { return JSON.parse(v); } catch (e) { return null; }
+  }
+  return v;
+}
+
 function sanitizeSheetName(name, used) {
   var safe = String(name || 'Toko').replace(/[\\/?*[\]:]/g, '').trim().slice(0, 31) || 'Toko';
   var final = safe, i = 2;
@@ -14,12 +22,12 @@ function sanitizeSheetName(name, used) {
 
 export default async function handler(req, res) {
   try {
-    const [stores, visits] = await Promise.all([
+    const [stores, visitsHash] = await Promise.all([
       redis.get('sft-stores-v1'),
-      redis.get('sft-visits-v1'),
+      redis.hgetall('sft-visits-hash-v1'),
     ]);
     const storesObj = stores || {};
-    const visitsArr = Array.isArray(visits) ? visits : [];
+    const visitsArr = visitsHash ? Object.values(visitsHash).map(parseVal).filter(Boolean) : [];
 
     const storeStats = {};
     visitsArr.forEach(function (v) {
