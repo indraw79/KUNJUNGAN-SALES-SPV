@@ -155,6 +155,17 @@ function computeSuspectedDuplicates(stores, dismissed){
   pairs.sort(function(x,y){ return x.dist - y.dist; });
   return pairs;
 }
+function filterStoreCards(query){
+  var q = (query||'').trim().toLowerCase();
+  var visibleCount = 0;
+  document.querySelectorAll('[data-store-search]').forEach(function(el){
+    var match = !q || el.getAttribute('data-store-search').indexOf(q) !== -1;
+    el.style.display = match ? '' : 'none';
+    if(match) visibleCount++;
+  });
+  var empty = document.getElementById('storeSearchEmpty');
+  if(empty) empty.style.display = (q && visibleCount===0) ? '' : 'none';
+}
 function visitStatsForStoreName(name){
   var list = S.visits.filter(function(v){ return v.storeName===name; });
   var order = list.reduce(function(s,v){ return s+orderTotalOf(v); },0);
@@ -785,6 +796,7 @@ function storesManagementHTML(){
     '<button data-action="reloadStores" style="background:none;border:none;color:var(--primary);padding:6px;flex-shrink:0;">⟳</button>' +
   '</div>';
   html += '<a href="/api/export-stores" class="btn btn-dark btn-sm" style="margin-bottom:14px;display:inline-flex;">⬇ Export Data Toko (Excel)</a>';
+  html += '<input class="input" id="storeSearchInput" autocomplete="off" placeholder="🔍 Cari nama toko..." style="margin-bottom:14px;">';
   var dupes = computeSuspectedDuplicates(stores, S.dismissedDupes);
   if(dupes.length>0){
     html += '<div class="card" style="margin-bottom:16px;border:1px solid #C1502E;">' +
@@ -802,13 +814,14 @@ function storesManagementHTML(){
     html += '</div>';
   }
   if(keys.length===0){ html += '<p class="small muted">Belum ada toko terdaftar.</p>'; }
+  html += '<p id="storeSearchEmpty" class="small muted" style="display:none;">Tidak ada toko yang cocok dengan pencarian.</p>';
   keys.forEach(function(key){
     var store = stores[key];
     var mapsLink = 'https://www.google.com/maps?q='+store.lat+','+store.lng;
     var radiusVal = (S.storeRadiusDrafts[key]!=null) ? S.storeRadiusDrafts[key] : (store.radius||DEFAULT_RADIUS);
     var kotaLabel = store.kota ? esc(store.kota) : '<span style="color:var(--muted);">belum diketahui</span>';
     var kecLabel = store.kecamatan ? esc(store.kecamatan) : '<span style="color:var(--muted);">belum diketahui</span>';
-    html += '<div class="card" style="margin-bottom:10px;">' +
+    html += '<div class="card" style="margin-bottom:10px;" data-store-search="'+esc(store.name.toLowerCase())+'">' +
       '<div class="row between" style="margin-bottom:6px;"><span style="font-weight:600;font-size:14px;">'+esc(store.name)+'</span><a class="link mono" href="'+mapsLink+'" target="_blank" rel="noreferrer">lihat peta</a></div>' +
       '<div class="xs muted" style="margin-bottom:8px;">📍 '+kecLabel+', '+kotaLabel+'</div>' +
       '<div class="row gap6" style="margin-bottom:8px;flex-wrap:wrap;">' +
@@ -1380,6 +1393,7 @@ document.getElementById('app').addEventListener('change', function(e){
 });
 document.getElementById('app').addEventListener('input', function(e){
   if(e.target.id === 'storeNameInput') renderStoreSuggestions(e.target.value);
+  if(e.target.id === 'storeSearchInput') filterStoreCards(e.target.value);
 });
 document.getElementById('app').addEventListener('focusin', function(e){
   if(e.target.id === 'storeNameInput') renderStoreSuggestions(e.target.value);
