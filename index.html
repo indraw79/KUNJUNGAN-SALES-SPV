@@ -484,8 +484,8 @@ function screenSales(){
       '</div>';
   } else if(S.checkinStage==='entering'){
     headerInner = '<label class="lbl" style="color:rgba(255,255,255,.7);">Nama toko</label>' +
-      '<input class="input input-dark" id="storeNameInput" list="storeSuggestions" placeholder="cth. Toko Sumber Jaya">' +
-      '<datalist id="storeSuggestions">' + S.storeNames.map(function(n){ return '<option value="'+esc(n)+'">'; }).join('') + '</datalist>' +
+      '<input class="input input-dark" id="storeNameInput" autocomplete="off" placeholder="cth. Toko Sumber Jaya">' +
+      '<div id="storeSuggestionList"></div>' +
       '<p class="xs" style="color:rgba(255,255,255,.4);margin:6px 0 0;">Toko baru akan mendaftarkan lokasi GPS saat ini sebagai titik acuan.</p>' +
       (S.gpsError ? '<div class="xs" style="color:#F3C6A8;margin-top:8px;line-height:1.5;background:rgba(193,80,46,.15);border:1px solid rgba(193,80,46,.35);border-radius:10px;padding:10px 12px;">⚠ '+esc(S.gpsError)+'</div>' : '') +
       '<div class="row gap8" style="margin-top:12px;">' +
@@ -979,6 +979,13 @@ var Actions = {
     });
   },
   retryCheckin: function(){ setState({checkinStage:'entering', outOfRadius:null}); Actions.attemptCheckin(); },
+  selectStoreSuggestion: function(el){
+    var name = el.getAttribute('data-name');
+    var input = document.getElementById('storeNameInput');
+    if(input) input.value = name;
+    var list = document.getElementById('storeSuggestionList');
+    if(list) list.innerHTML = '';
+  },
   confirmOverride: function(){
     var reasonEl = document.getElementById('overrideReason');
     var reason = reasonEl ? reasonEl.value.trim() : '';
@@ -1190,6 +1197,15 @@ var Actions = {
   noop: function(){}
 };
 
+function renderStoreSuggestions(query){
+  var list = document.getElementById('storeSuggestionList');
+  if(!list) return;
+  var q = (query||'').trim().toLowerCase();
+  var matches = (q ? S.storeNames.filter(function(n){ return n.toLowerCase().indexOf(q) !== -1; }) : S.storeNames).slice(0,6);
+  list.innerHTML = matches.map(function(n){
+    return '<button type="button" class="btn btn-ghost btn-sm" data-action="selectStoreSuggestion" data-name="'+esc(n)+'" style="display:block;width:100%;text-align:left;margin-top:6px;">'+esc(n)+'</button>';
+  }).join('');
+}
 function syncOrderItemsFromDOM(){
   var fields = document.querySelectorAll('[data-order-field]');
   fields.forEach(function(f){
@@ -1272,6 +1288,12 @@ document.getElementById('app').addEventListener('change', function(e){
     handleImportUsersFile(file);
     e.target.value = '';
   }
+});
+document.getElementById('app').addEventListener('input', function(e){
+  if(e.target.id === 'storeNameInput') renderStoreSuggestions(e.target.value);
+});
+document.getElementById('app').addEventListener('focusin', function(e){
+  if(e.target.id === 'storeNameInput') renderStoreSuggestions(e.target.value);
 });
 
 /* ---------------- app bootstrap ---------------- */
