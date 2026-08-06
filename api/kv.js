@@ -6,7 +6,7 @@ const redis = Redis.fromEnv();
 // GET  /api/kv?key=xxx        -> { key, value }
 // POST /api/kv?key=xxx  body: { value }  -> { key, value }
 // Only a small whitelist of keys is allowed, to keep this endpoint from being used as an open KV proxy.
-const ALLOWED_KEYS = ['sft-visits-v1', 'sft-stores-v1', 'sft-users-v1'];
+const ALLOWED_KEYS = ['sft-visits-v1', 'sft-stores-v1', 'sft-users-v1', 'sft-dismissed-dupes-v1'];
 
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store, max-age=0');
