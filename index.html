@@ -943,6 +943,13 @@ var Actions = {
       if(n) names[n] = true;
     });
     setState({checkinStage:'entering', gpsError:'', storeNames: Object.keys(names).sort()});
+    loadStores().then(function(stores){
+      Object.keys(stores).forEach(function(k){
+        var n = String(stores[k].name||'').trim();
+        if(n) names[n] = true;
+      });
+      setState({storeNames: Object.keys(names).sort()});
+    });
   },
   cancelCheckin: function(){ setState({checkinStage:'idle', outOfRadius:null, gpsError:''}); },
 
