@@ -937,9 +937,12 @@ var Actions = {
   },
 
   startCheckin: function(){
-    loadStores().then(function(stores){
-      setState({checkinStage:'entering', gpsError:'', storeNames: Object.keys(stores).map(function(k){ return stores[k].name; })});
+    var names = {};
+    myVisits().forEach(function(v){
+      var n = String(v.storeName||'').trim();
+      if(n) names[n] = true;
     });
+    setState({checkinStage:'entering', gpsError:'', storeNames: Object.keys(names).sort()});
   },
   cancelCheckin: function(){ setState({checkinStage:'idle', outOfRadius:null, gpsError:''}); },
 
