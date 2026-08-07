@@ -739,7 +739,10 @@ function screenDashboard(){
   html += '<div class="tabs" style="margin-bottom:12px;">' + tabs.map(function(t){ return '<button class="tab-btn '+(S.dashTab===t[0]?'active':'')+'" data-action="setDashTab" data-val="'+t[0]+'">'+t[1]+'</button>'; }).join('') + '</div>';
 
   if(S.dashTab==='visits'){
-    html += filterChipsHTML('dash', S.dashFilter, S.dashStart, S.dashEnd);
+    html += '<div class="row between" style="align-items:flex-start;flex-wrap:wrap;gap:8px;">' +
+      '<div style="flex:1;min-width:220px;">' + filterChipsHTML('dash', S.dashFilter, S.dashStart, S.dashEnd) + '</div>' +
+      '<div style="font-weight:800;font-size:22px;color:var(--accent-dark);letter-spacing:.01em;flex-shrink:0;">Malang</div>' +
+    '</div>';
     html += '<div class="row gap8" style="margin:8px 0 16px;flex-wrap:wrap;">' +
       '<button class="btn btn-dark btn-sm" data-action="exportDash" '+(scoped.length===0?'disabled':'')+'>⬇ Export CSV ('+scoped.length+' kunjungan)</button>' +
       (role!=='guest' ? '<button class="btn btn-outline btn-sm" data-action="openManualEntry">+ Tambah Kunjungan Manual</button>' : '') +
