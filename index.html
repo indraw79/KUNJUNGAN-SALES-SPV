@@ -728,7 +728,7 @@ function screenDashboard(){
   if(S.manualEntryOpen) html += manualEntryModal();
   html += '<div class="header" style="padding-bottom:28px;">' +
     '<div class="row between">' +
-      '<div class="row gap8"><div style="width:32px;height:32px;border-radius:10px;background:rgba(255,255,255,.1);display:flex;align-items:center;justify-content:center;">'+(role==='owner'?'🛡':'👥')+'</div><div><div style="font-weight:600;font-size:14px;">'+(role==='owner'?'Owner':'Supervisor')+'</div><div class="xs mono" style="color:rgba(255,255,255,.5);">@'+esc(S.session.username)+'</div></div></div>' +
+      '<div class="row gap8"><div style="width:32px;height:32px;border-radius:10px;background:rgba(255,255,255,.1);display:flex;align-items:center;justify-content:center;">'+(role==='owner'?'🛡':(role==='guest'?'👁':'👥'))+'</div><div><div style="font-weight:600;font-size:14px;">'+(role==='owner'?'Owner':(role==='guest'?'Guest':'Supervisor'))+'</div><div class="xs mono" style="color:rgba(255,255,255,.5);">@'+esc(S.session.username)+'</div></div></div>' +
       '<div class="row gap4">' +
         (role==='supervisor' ? '<button data-action="switchScreen" data-val="sales" class="btn btn-ghost btn-sm" style="font-size:11px;">📍 Kunjungan Saya</button>' : '') +
         '<button data-action="refreshVisits" style="background:none;border:none;color:rgba(255,255,255,.6);font-size:16px;padding:8px;">⟳</button><button data-action="logout" style="background:none;border:none;color:rgba(255,255,255,.6);font-size:18px;padding:8px;">⏻</button>' +
@@ -742,7 +742,7 @@ function screenDashboard(){
     html += filterChipsHTML('dash', S.dashFilter, S.dashStart, S.dashEnd);
     html += '<div class="row gap8" style="margin:8px 0 16px;flex-wrap:wrap;">' +
       '<button class="btn btn-dark btn-sm" data-action="exportDash" '+(scoped.length===0?'disabled':'')+'>⬇ Export CSV ('+scoped.length+' kunjungan)</button>' +
-      '<button class="btn btn-outline btn-sm" data-action="openManualEntry">+ Tambah Kunjungan Manual</button>' +
+      (role!=='guest' ? '<button class="btn btn-outline btn-sm" data-action="openManualEntry">+ Tambah Kunjungan Manual</button>' : '') +
     '</div>';
     html += '<div class="grid2" style="margin-bottom:16px;">' +
       statCard('Kunjungan', totalVisits, activeNow+' sedang berlangsung') +
@@ -752,7 +752,7 @@ function screenDashboard(){
     '</div>';
     html += dailySummaryHTML(scoped);
   } else if(S.dashTab==='stores'){
-    html += storesManagementHTML();
+    html += storesManagementHTML(role==='guest');
   } else if(S.dashTab==='users' && role==='owner'){
     html += usersManagementHTML();
   }
@@ -788,16 +788,16 @@ function screenDashboard(){
   return html;
 }
 
-function storesManagementHTML(){
+function storesManagementHTML(readOnly){
   var stores = S.storesCache || {};
   var keys = Object.keys(stores).sort(function(a,b){ return stores[a].name.localeCompare(stores[b].name); });
   var html = '<div class="row between" style="margin-bottom:8px;flex-wrap:wrap;gap:8px;">' +
-    '<p class="xs muted" style="margin:0;flex:1;min-width:200px;">Lokasi & kecamatan/kota terdeteksi otomatis dari check-in pertama sales — bisa dikoreksi manual di bawah.</p>' +
+    '<p class="xs muted" style="margin:0;flex:1;min-width:200px;">Lokasi & kecamatan/kota terdeteksi otomatis dari check-in pertama sales'+(readOnly?'.':' — bisa dikoreksi manual di bawah.')+'</p>' +
     '<button data-action="reloadStores" style="background:none;border:none;color:var(--primary);padding:6px;flex-shrink:0;">⟳</button>' +
   '</div>';
   html += '<a href="/api/export-stores" class="btn btn-dark btn-sm" style="margin-bottom:14px;display:inline-flex;">⬇ Export Data Toko (Excel)</a>';
   html += '<input class="input" id="storeSearchInput" autocomplete="off" placeholder="🔍 Cari nama toko..." style="margin-bottom:14px;">';
-  var dupes = computeSuspectedDuplicates(stores, S.dismissedDupes);
+  var dupes = readOnly ? [] : computeSuspectedDuplicates(stores, S.dismissedDupes);
   if(dupes.length>0){
     html += '<div class="card" style="margin-bottom:16px;border:1px solid #C1502E;">' +
       '<h4 class="xs" style="text-transform:uppercase;margin:0 0 8px;color:#C1502E;">⚠ Kemungkinan Toko Duplikat ('+dupes.length+')</h4>' +
@@ -821,21 +821,27 @@ function storesManagementHTML(){
     var radiusVal = (S.storeRadiusDrafts[key]!=null) ? S.storeRadiusDrafts[key] : (store.radius||DEFAULT_RADIUS);
     var kotaLabel = store.kota ? esc(store.kota) : '<span style="color:var(--muted);">belum diketahui</span>';
     var kecLabel = store.kecamatan ? esc(store.kecamatan) : '<span style="color:var(--muted);">belum diketahui</span>';
+    var editRowsHtml = readOnly ?
+      ('<div class="xs muted">Radius: '+radiusVal+' meter</div>') :
+      (
+        '<div class="row gap6" style="margin-bottom:8px;flex-wrap:wrap;">' +
+          '<input class="input xs" style="flex:1;min-width:110px;padding:6px 8px;" id="kec_'+esc(key)+'" placeholder="Kecamatan" value="'+esc(store.kecamatan||'')+'">' +
+          '<input class="input xs" style="flex:1;min-width:110px;padding:6px 8px;" id="kota_'+esc(key)+'" placeholder="Kota/Kabupaten" value="'+esc(store.kota||'')+'">' +
+          '<button class="btn btn-outline btn-sm" style="flex-shrink:0;" data-action="saveLocationLabels" data-key="'+esc(key)+'">Simpan</button>' +
+        '</div>' +
+        '<div class="row gap8">' +
+          '<label class="xs muted" style="flex-shrink:0;">Radius</label>' +
+          '<input type="number" min="10" class="input mono xs" style="width:70px;padding:6px 8px;" id="radius_'+esc(key)+'" value="'+radiusVal+'">' +
+          '<span class="xs muted" style="flex-shrink:0;">meter</span>' +
+          '<button class="btn btn-outline btn-sm" style="margin-left:auto;flex-shrink:0;" data-action="saveRadius" data-key="'+esc(key)+'">Simpan</button>' +
+          '<button data-action="resetStoreLocation" data-key="'+esc(key)+'" style="background:none;border:none;color:var(--danger);padding:4px;flex-shrink:0;" title="Reset lokasi">⟲</button>' +
+        '</div>'
+      );
     html += '<div class="card" style="margin-bottom:10px;" data-store-search="'+esc(store.name.toLowerCase())+'">' +
       '<div class="row between" style="margin-bottom:6px;"><span style="font-weight:600;font-size:14px;">'+esc(store.name)+'</span><a class="link mono" href="'+mapsLink+'" target="_blank" rel="noreferrer">lihat peta</a></div>' +
       '<div class="xs muted" style="margin-bottom:8px;">📍 '+kecLabel+', '+kotaLabel+'</div>' +
-      '<div class="row gap6" style="margin-bottom:8px;flex-wrap:wrap;">' +
-        '<input class="input xs" style="flex:1;min-width:110px;padding:6px 8px;" id="kec_'+esc(key)+'" placeholder="Kecamatan" value="'+esc(store.kecamatan||'')+'">' +
-        '<input class="input xs" style="flex:1;min-width:110px;padding:6px 8px;" id="kota_'+esc(key)+'" placeholder="Kota/Kabupaten" value="'+esc(store.kota||'')+'">' +
-        '<button class="btn btn-outline btn-sm" style="flex-shrink:0;" data-action="saveLocationLabels" data-key="'+esc(key)+'">Simpan</button>' +
-      '</div>' +
-      '<div class="row gap8">' +
-        '<label class="xs muted" style="flex-shrink:0;">Radius</label>' +
-        '<input type="number" min="10" class="input mono xs" style="width:70px;padding:6px 8px;" id="radius_'+esc(key)+'" value="'+radiusVal+'">' +
-        '<span class="xs muted" style="flex-shrink:0;">meter</span>' +
-        '<button class="btn btn-outline btn-sm" style="margin-left:auto;flex-shrink:0;" data-action="saveRadius" data-key="'+esc(key)+'">Simpan</button>' +
-        '<button data-action="resetStoreLocation" data-key="'+esc(key)+'" style="background:none;border:none;color:var(--danger);padding:4px;flex-shrink:0;" title="Reset lokasi">⟲</button>' +
-      '</div></div>';
+      editRowsHtml +
+    '</div>';
   });
   return html;
 }
@@ -843,7 +849,7 @@ function storesManagementHTML(){
 function usersManagementHTML(){
   var users = S.users;
   var keys = Object.keys(users).sort(function(a,b){ return users[a].displayName.localeCompare(users[b].displayName); });
-  var roleLabel = {sales:'Sales', supervisor:'Supervisor', owner:'Owner'};
+  var roleLabel = {sales:'Sales', supervisor:'Supervisor', owner:'Owner', guest:'Guest'};
   var html = '<div class="card" style="margin-bottom:16px;">' +
     '<h4 class="xs muted" style="text-transform:uppercase;margin:0 0 4px;">⇅ Impor massal dari Excel</h4>' +
     '<p class="xs muted" style="margin:0 0 10px;">Unduh template, isi di Excel (satu baris = satu sales), simpan sebagai CSV, lalu unggah di sini.</p>' +
@@ -858,7 +864,7 @@ function usersManagementHTML(){
     '<div class="stack gap8">' +
       '<input class="input" id="nu_name" placeholder="Nama lengkap">' +
       '<div class="row gap8"><input class="input" id="nu_user" style="flex:1;" placeholder="Username" autocapitalize="off">' +
-      '<select class="input" id="nu_role" style="width:auto;"><option value="sales">Sales</option><option value="supervisor">Supervisor</option><option value="owner">Owner</option></select></div>' +
+      '<select class="input" id="nu_role" style="width:auto;"><option value="sales">Sales</option><option value="supervisor">Supervisor</option><option value="owner">Owner</option><option value="guest">Guest (lihat saja)</option></select></div>' +
       '<input class="input mono" id="nu_pass" placeholder="Password awal (min 4 karakter)">' +
       (S.errorMsg ? '<div class="xs" style="color:var(--danger);">⚠ '+esc(S.errorMsg)+'</div>' : '') +
       '<button class="btn btn-dark" style="width:100%;" data-action="createUser">Buat akun</button>' +
