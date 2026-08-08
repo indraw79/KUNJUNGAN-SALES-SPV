@@ -273,6 +273,163 @@ function getPosition(){
     });
   }).then(function(pos){ return pos; }, function(err){ return {error: toFriendly(err)}; });
 }
+
+/* ---------------- payment photo: EXIF read, compression, upload ---------------- */
+var EXIF_TYPE_SIZES = {1:1,2:1,3:2,4:4,5:8,7:1,9:4,10:8};
+function readIfd(view, tiffStart, ifdOffset, little){
+  var entries = [];
+  if(ifdOffset+2 > view.byteLength) return entries;
+  var count = view.getUint16(ifdOffset, little);
+  for(var i=0;i<count;i++){
+    var entryOffset = ifdOffset+2+i*12;
+    if(entryOffset+12 > view.byteLength) break;
+    var tag = view.getUint16(entryOffset, little);
+    var type = view.getUint16(entryOffset+2, little);
+    var numValues = view.getUint32(entryOffset+4, little);
+    var valueOffset = entryOffset+8;
+    var typeSize = EXIF_TYPE_SIZES[type] || 1;
+    var totalSize = typeSize*numValues;
+    var dataOffset = totalSize > 4 ? (tiffStart + view.getUint32(valueOffset, little)) : valueOffset;
+    if(dataOffset+totalSize > view.byteLength) continue;
+    var entry = {tag:tag};
+    if(type === 2){
+      var bytes = [];
+      for(var j=0;j<Math.max(numValues-1,0);j++){ bytes.push(view.getUint8(dataOffset+j)); }
+      entry.str = String.fromCharCode.apply(null, bytes);
+    } else if(type === 5 || type === 10){
+      var rationals = [];
+      for(var k=0;k<numValues;k++){
+        var num = view.getUint32(dataOffset+k*8, little);
+        var den = view.getUint32(dataOffset+k*8+4, little);
+        rationals.push(den ? num/den : 0);
+      }
+      entry.rationals = rationals;
+    } else if(type === 3){
+      entry.value = numValues===1 ? view.getUint16(dataOffset, little) : view.getUint32(valueOffset, little);
+    } else if(type === 4){
+      entry.value = view.getUint32(dataOffset, little);
+    }
+    entries.push(entry);
+  }
+  return entries;
+}
+function dmsToDecimal(rationals){ return rationals[0]+rationals[1]/60+rationals[2]/3600; }
+function parseExifDate(str){
+  var m = /^(\d{4}):(\d{2}):(\d{2}) (\d{2}):(\d{2}):(\d{2})/.exec(str||'');
+  if(!m) return null;
+  return new Date(Number(m[1]), Number(m[2])-1, Number(m[3]), Number(m[4]), Number(m[5]), Number(m[6]));
+}
+function parseTiff(view, tiffStart, result){
+  var little = view.getUint16(tiffStart) === 0x4949;
+  var ifd0Offset = view.getUint32(tiffStart+4, little);
+  var exifIfdOffset = null, gpsIfdOffset = null;
+  readIfd(view, tiffStart, tiffStart+ifd0Offset, little).forEach(function(e){
+    if(e.tag === 0x8769) exifIfdOffset = e.value;
+    if(e.tag === 0x8825) gpsIfdOffset = e.value;
+  });
+  if(exifIfdOffset != null){
+    readIfd(view, tiffStart, tiffStart+exifIfdOffset, little).forEach(function(e){
+      if((e.tag === 0x9003 || e.tag === 0x9004) && e.str && !result.dateTimeOriginal) result.dateTimeOriginal = parseExifDate(e.str);
+    });
+  }
+  if(gpsIfdOffset != null){
+    var latRef=null, lat=null, lngRef=null, lng=null;
+    readIfd(view, tiffStart, tiffStart+gpsIfdOffset, little).forEach(function(e){
+      if(e.tag === 1) latRef = e.str;
+      if(e.tag === 2) lat = e.rationals;
+      if(e.tag === 3) lngRef = e.str;
+      if(e.tag === 4) lng = e.rationals;
+    });
+    if(lat && lng){
+      result.lat = dmsToDecimal(lat) * (latRef==='S'?-1:1);
+      result.lng = dmsToDecimal(lng) * (lngRef==='W'?-1:1);
+    }
+  }
+}
+function parseExif(buffer){
+  var result = {dateTimeOriginal:null, lat:null, lng:null};
+  try {
+    var view = new DataView(buffer);
+    if(view.byteLength < 4 || view.getUint16(0) !== 0xFFD8) return result;
+    var offset = 2;
+    while(offset+4 <= view.byteLength){
+      var marker = view.getUint16(offset);
+      if(marker === 0xFFD9 || marker === 0xFFDA) break;
+      var size = view.getUint16(offset+2);
+      if(marker === 0xFFE1 && view.getUint32(offset+4) === 0x45786966 && view.getUint16(offset+8) === 0x0000){
+        parseTiff(view, offset+10, result);
+        return result;
+      }
+      offset += 2+size;
+    }
+  } catch(e){ console.warn('gagal baca EXIF foto', e); }
+  return result;
+}
+function readFileAsArrayBuffer(file){
+  return new Promise(function(resolve, reject){
+    var reader = new FileReader();
+    reader.onload = function(){ resolve(reader.result); };
+    reader.onerror = function(){ reject(new Error('Gagal membaca file foto')); };
+    reader.readAsArrayBuffer(file);
+  });
+}
+function compressImage(file, maxDim, quality){
+  maxDim = maxDim || 1280; quality = quality || 0.7;
+  return new Promise(function(resolve, reject){
+    var reader = new FileReader();
+    reader.onload = function(){
+      var img = new Image();
+      img.onload = function(){
+        var scale = Math.min(1, maxDim/Math.max(img.width, img.height));
+        var canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(img.width*scale));
+        canvas.height = Math.max(1, Math.round(img.height*scale));
+        canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob(function(blob){
+          if(!blob){ reject(new Error('Gagal mengompres foto')); return; }
+          resolve(blob);
+        }, 'image/jpeg', quality);
+      };
+      // data: URL, allowed by the app's Content-Security-Policy (img-src 'self' data:);
+      // a blob: object URL would be silently blocked by that same policy.
+      img.onerror = function(){ reject(new Error('Gagal membaca foto')); };
+      img.src = reader.result;
+    };
+    reader.onerror = function(){ reject(new Error('Gagal membaca foto')); };
+    reader.readAsDataURL(file);
+  });
+}
+function blobToDataUrl(blob){
+  return new Promise(function(resolve, reject){
+    var reader = new FileReader();
+    reader.onload = function(){ resolve(reader.result); };
+    reader.onerror = function(){ reject(new Error('Gagal membaca foto')); };
+    reader.readAsDataURL(blob);
+  });
+}
+function uploadPaymentPhoto(visitId, dataUrl){
+  return withTimeout(fetch('/api/upload-photo', {
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({visitId:visitId, imageBase64:dataUrl})
+  }).then(function(res){
+    if(!res.ok) throw new Error('Gagal upload foto (status '+res.status+')');
+    return res.json();
+  }), 30000).catch(function(e){ console.error('gagal upload foto', e); throw e; });
+}
+function evaluatePhotoMismatch(photo, checkoutPos, checkoutTime){
+  var TEN_MIN = 10*60*1000;
+  var timeDiff = Math.abs(new Date(photo.photoTime) - checkoutTime);
+  var timeMismatch = timeDiff > TEN_MIN;
+  var distanceMismatch, distance = null;
+  if(photo.lat != null && photo.lng != null){
+    distance = haversineMeters(photo.lat, photo.lng, checkoutPos.lat, checkoutPos.lng);
+    distanceMismatch = distance > DEFAULT_RADIUS;
+  } else {
+    distanceMismatch = true;
+  }
+  if(!timeMismatch && !distanceMismatch) return null;
+  return {timeMismatch:timeMismatch, distanceMismatch:distanceMismatch, timeDiffMinutes:Math.round(timeDiff/60000), distance:distance};
+}
+
 function sha256Hex(str){
   var enc=new TextEncoder().encode(str);
   return crypto.subtle.digest('SHA-256', enc).then(function(buf){
@@ -381,6 +538,8 @@ var S = {
   checkinStage:'idle', gpsError:'', busy:false,
   outOfRadius:null,
   orderFormOpen:false, orderItems:[], orderNotes:'',
+  orderPaymentDraft:'', orderNotesDraft:'',
+  paymentPhoto:null, pendingCheckout:null, photoMismatchInfo:null,
   riwayatFilter:'week', riwayatStart:'', riwayatEnd:'',
   dashTab:'visits', dashFilter:'today', dashStart:'', dashEnd:'', expandedSales:null, expandedVisit:null,
   editingVisit:null, editOrderItems:[],
@@ -391,6 +550,7 @@ var S = {
   timerHandle:null
 };
 function setState(patch){
+  if(S.orderFormOpen) syncOrderFormFromDOM();
   if(S.checkinStage==='entering') syncCheckinFormFromDOM();
   Object.assign(S, patch);
   render();
@@ -484,6 +644,12 @@ function visitRowHTML(v, showSales, openId){
       detail += v.orders.map(function(o){ return '<div class="row between xs" style="background:var(--bg);border-radius:8px;padding:7px 10px;margin-bottom:4px;"><span>'+esc(o.product)+' × '+o.qty+'</span><span class="mono">'+rp(o.qty*o.price)+'</span></div>'; }).join('');
       detail += '</div>';
     }
+    if(v.paymentPhotoUrl){
+      detail += '<div style="margin-top:10px;"><div class="xs muted row gap6" style="margin-bottom:6px;align-items:center;">Bukti pembayaran'+(v.paymentPhotoMismatch?(' '+badge('⚠ waktu/lokasi tidak sesuai','warn')):'')+'</div>' +
+        '<a href="'+esc(v.paymentPhotoUrl)+'" target="_blank" rel="noreferrer"><img src="'+esc(v.paymentPhotoUrl)+'" style="width:96px;height:96px;object-fit:cover;border-radius:10px;border:1px solid var(--border);"></a>' +
+        (v.paymentPhotoMismatch && v.paymentPhotoMismatchReason ? '<p class="xs muted" style="margin:6px 0 0;">Alasan: '+esc(v.paymentPhotoMismatchReason)+'</p>' : '') +
+      '</div>';
+    }
     if(v.notes){ detail += '<div style="margin-top:10px;"><div class="xs muted" style="margin-bottom:2px;">Catatan</div><p class="xs" style="margin:0;">'+esc(v.notes)+'</p></div>'; }
     if(v.status==='done' && S.session && (S.session.role==='owner' || S.session.role==='supervisor')){
       detail += '<button class="btn btn-outline btn-sm" style="margin-top:12px;" data-action="openEditVisit" data-checkin="'+esc(v.checkinTime)+'" data-sales="'+esc(v.salesName)+'">✏️ Edit Order/Pembayaran</button>';
@@ -571,6 +737,7 @@ function screenSales(){
   var roleLabelTxt = isSupervisor ? 'Supervisor' : 'Sales';
   var html = '<div class="screen">';
   if(S.orderFormOpen && active) html += orderFormModal(active);
+  if(S.pendingCheckout) html += photoMismatchModal();
   html += '<div class="header">' +
     '<div class="row between" style="margin-bottom:20px;">' +
       '<div class="row gap8"><div style="width:32px;height:32px;border-radius:10px;background:rgba(255,255,255,.1);display:flex;align-items:center;justify-content:center;">👤</div><div><div style="font-weight:600;font-size:14px;">'+esc(S.session.name)+'</div><div class="xs mono" style="color:rgba(255,255,255,.5);">'+roleLabelTxt+' · @'+esc(S.session.username)+'</div></div></div>' +
@@ -596,10 +763,7 @@ function screenSales(){
       html += '<div class="timeline">';
       html += todays.map(function(v){
         var dotColor = v.status==='active'?'var(--accent)':(v.checkinOutOfRadius?'var(--danger)':'var(--success)');
-        var body = '<div class="row between gap6" style="flex-wrap:wrap;margin-bottom:4px;"><span style="font-weight:600;font-size:14px;">'+esc(v.storeName)+'</span><span class="row gap4">'+(v.checkinOutOfRadius?badge('⚠ luar radius','warn'):'')+badge(v.status==='active'?'Berlangsung':'Selesai', v.status==='active'?'active':'done')+'</span></div>' +
-          '<div class="xs muted mono">'+fmtTime(v.checkinTime)+' – '+(v.checkoutTime?fmtTime(v.checkoutTime):'...')+(v.durationMinutes!=null?(' · '+durationLabel(v.durationMinutes)):'')+'</div>' +
-          (v.status==='done' ? ('<div class="row gap12 xs" style="margin-top:8px;"><span class="muted">'+(v.orders||[]).length+' item order</span><span class="mono" style="color:#2F5B3B;">'+rp(v.payment)+' dibayar</span></div>') : '');
-        return '<div style="position:relative;margin-bottom:14px;"><span class="timeline-dot" style="background:'+dotColor+';"></span><div class="card">'+body+'</div></div>';
+        return '<div style="position:relative;margin-bottom:14px;"><span class="timeline-dot" style="background:'+dotColor+';"></span>'+visitRowHTML(v,false,S.expandedVisit)+'</div>';
       }).join('');
       html += '</div>';
     }
@@ -639,13 +803,55 @@ function orderFormModal(active){
         rows +
         '<div class="xs mono muted" style="text-align:right;margin-bottom:16px;">Total order: <b style="color:var(--primary);">'+rp(total)+'</b></div>' +
         '<label class="lbl">💰 Pembayaran nota diterima</label>' +
-        '<input type="number" min="0" class="input mono" id="orderPayment" placeholder="0" style="margin-bottom:16px;">' +
+        '<input type="number" min="0" class="input mono" id="orderPayment" placeholder="0" value="'+esc(S.orderPaymentDraft||'')+'" style="margin-bottom:16px;">' +
+        paymentPhotoSectionHTML() +
         '<label class="lbl">Catatan (opsional)</label>' +
-        '<textarea class="input" id="orderNotesInput" rows="2" placeholder="cth. toko tutup lebih awal, follow up minggu depan..."></textarea>' +
+        '<textarea class="input" id="orderNotesInput" rows="2" placeholder="cth. toko tutup lebih awal, follow up minggu depan...">'+esc(S.orderNotesDraft||'')+'</textarea>' +
       '</div>' +
       '<div class="sticky-bottom">' +
         '<button class="btn btn-outline" style="flex:1;" data-action="closeOrderForm">Batal</button>' +
-        '<button class="btn btn-dark" style="flex:1;" data-action="submitCheckout" '+(S.busy?'disabled':'')+'>Simpan & Check-out</button>' +
+        '<button class="btn btn-dark" style="flex:1;" data-action="submitCheckout" '+((S.busy||(S.paymentPhoto&&S.paymentPhoto.status==='processing'))?'disabled':'')+'>Simpan & Check-out</button>' +
+      '</div>' +
+    '</div></div>';
+}
+
+function paymentPhotoSectionHTML(){
+  var photo = S.paymentPhoto;
+  var out = '<label class="lbl">📷 Foto bukti tanda terima (wajib jika ada pembayaran)</label>';
+  if(photo && photo.status==='ready'){
+    out += '<div class="row gap8" style="margin-bottom:16px;align-items:center;">' +
+      '<img src="'+photo.dataUrl+'" style="width:64px;height:64px;object-fit:cover;border-radius:10px;border:1px solid var(--border);flex-shrink:0;">' +
+      '<div class="xs muted" style="flex:1;">Foto siap dilampirkan.</div>' +
+      '<button class="btn btn-outline btn-sm" data-action="removePaymentPhoto">Ganti foto</button>' +
+    '</div>';
+  } else {
+    if(photo && photo.status==='processing'){
+      out += '<div class="xs muted" style="margin-bottom:8px;">⏳ Memproses foto...</div>';
+    } else if(photo && photo.status==='error'){
+      out += '<div class="xs" style="color:var(--danger);margin-bottom:8px;">⚠ '+esc(photo.error)+'</div>';
+    }
+    out += '<input type="file" accept="image/*" capture="environment" id="orderPaymentPhoto" style="margin-bottom:16px;">';
+  }
+  return out;
+}
+function photoMismatchModal(){
+  var info = S.photoMismatchInfo || {};
+  var reasons = [];
+  if(info.timeMismatch) reasons.push('waktu foto berbeda '+info.timeDiffMinutes+' menit dari waktu check-out (toleransi 10 menit)');
+  if(info.distanceMismatch) reasons.push(info.distance!=null ? ('lokasi foto berjarak '+distLabel(info.distance)+' dari lokasi check-out') : 'lokasi foto tidak dapat dideteksi');
+  return '<div class="modal-overlay" data-action="noop">' +
+    '<div class="modal-sheet">' +
+      '<div class="sticky-top"><div class="xs mono muted" style="text-transform:uppercase;">⚠ Foto tidak sesuai</div><h2 class="display" style="font-size:17px;color:var(--primary);margin:2px 0 0;">Periksa bukti pembayaran</h2></div>' +
+      '<div class="p20" style="padding:16px 20px;">' +
+        '<div style="background:var(--danger-bg);border:1px solid #C1502E55;border-radius:12px;padding:12px;margin-bottom:16px;">' +
+          '<p class="xs" style="margin:0;color:var(--danger);line-height:1.5;">'+esc(reasons.join('; '))+'.</p>' +
+        '</div>' +
+        '<label class="lbl">Alasan (wajib diisi)</label>' +
+        '<textarea class="input" id="photoMismatchReason" rows="2" placeholder="cth. foto diambil sebelum sinyal GPS stabil, dsb."></textarea>' +
+      '</div>' +
+      '<div class="sticky-bottom">' +
+        '<button class="btn btn-outline" style="flex:1;" data-action="cancelPhotoMismatch">Batal</button>' +
+        '<button class="btn btn-danger" style="flex:1;" data-action="confirmPhotoMismatch" '+(S.busy?'disabled':'')+'>Tetap Simpan & Check-out</button>' +
       '</div>' +
     '</div></div>';
 }
@@ -1115,10 +1321,40 @@ var Actions = {
     finalizeCheckin(S.outOfRadius.pos, S.outOfRadius.storeName, {distanceMeters:S.outOfRadius.distance, outOfRadius:true, overrideReason:reason});
   },
 
-  openOrderForm: function(){ setState({orderFormOpen:true, orderItems:[{id:uid(), product:'', qty:1, price:0}]}); },
-  closeOrderForm: function(){ setState({orderFormOpen:false}); },
-  addOrderItem: function(){ syncOrderItemsFromDOM(); S.orderItems.push({id:uid(), product:'', qty:1, price:0}); render(); },
-  removeOrderItem: function(el){ syncOrderItemsFromDOM(); var idx=Number(el.getAttribute('data-idx')); S.orderItems.splice(idx,1); render(); },
+  openOrderForm: function(){ setState({orderFormOpen:true, orderItems:[{id:uid(), product:'', qty:1, price:0}], orderPaymentDraft:'', orderNotesDraft:'', paymentPhoto:null, pendingCheckout:null, photoMismatchInfo:null}); },
+  closeOrderForm: function(){ setState({orderFormOpen:false, orderPaymentDraft:'', orderNotesDraft:'', paymentPhoto:null, pendingCheckout:null, photoMismatchInfo:null}); },
+  addOrderItem: function(){ syncOrderFormFromDOM(); S.orderItems.push({id:uid(), product:'', qty:1, price:0}); render(); },
+  removeOrderItem: function(el){ syncOrderFormFromDOM(); var idx=Number(el.getAttribute('data-idx')); S.orderItems.splice(idx,1); render(); },
+  selectPaymentPhoto: function(file){
+    if(!/^image\//.test(file.type)){ showToast('File yang dipilih bukan foto.', true); return; }
+    setState({paymentPhoto:{status:'processing'}});
+    var exifResult = {dateTimeOriginal:null, lat:null, lng:null};
+    readFileAsArrayBuffer(file).then(function(buffer){
+      exifResult = parseExif(buffer);
+      return compressImage(file);
+    }).then(function(blob){
+      return blobToDataUrl(blob).then(function(dataUrl){
+        var lat = exifResult.lat, lng = exifResult.lng;
+        var locationSource = (lat!=null && lng!=null) ? 'exif' : null;
+        var photoTime = exifResult.dateTimeOriginal || new Date();
+        function finish(){
+          setState({paymentPhoto:{status:'ready', dataUrl:dataUrl, photoTime:photoTime.toISOString(), lat:lat, lng:lng, locationSource:locationSource}});
+        }
+        if(lat == null){
+          getPosition().then(function(pos){
+            if(!pos.error){ lat = pos.lat; lng = pos.lng; locationSource = 'geolocation'; }
+            finish();
+          });
+        } else {
+          finish();
+        }
+      });
+    }).catch(function(e){
+      console.error('gagal memproses foto', e);
+      setState({paymentPhoto:{status:'error', error:(e&&e.message)||'Gagal memproses foto'}});
+    });
+  },
+  removePaymentPhoto: function(){ setState({paymentPhoto:null}); },
   submitCheckout: function(){
     syncOrderItemsFromDOM();
     var paymentEl = document.getElementById('orderPayment');
@@ -1129,16 +1365,25 @@ var Actions = {
     var mv = myVisits();
     var active = mv.filter(function(v){ return v.status==='active'; })[0];
     if(!active) return;
+    if(payment > 0 && (!S.paymentPhoto || S.paymentPhoto.status !== 'ready')){
+      showToast('Ada pembayaran diterima — foto bukti tanda terima wajib dilampirkan.', true);
+      return;
+    }
     setState({busy:true});
     getPosition().then(function(pos){
       if(pos.error){ setState({busy:false}); showToast('Gagal mengambil lokasi check-out: '+pos.error, true); return; }
-      var checkoutTime = new Date().toISOString();
-      var durationMinutes = (new Date(checkoutTime)-new Date(active.checkinTime))/60000;
-      var updatedVisit = Object.assign({}, active, {checkoutTime:checkoutTime, checkoutLat:pos.lat||null, checkoutLng:pos.lng||null, status:'done', durationMinutes:durationMinutes, orders:orders, payment:payment, notes:notes});
-      upsertVisit(updatedVisit).then(function(){ return refreshVisitsSilent(); }).then(function(){ setState({busy:false, orderFormOpen:false}); })
-        .catch(function(e){ setState({busy:false}); alertSaveError(e); });
+      finishCheckout(active, pos, orders, payment, notes, null);
     });
   },
+  confirmPhotoMismatch: function(){
+    var reasonEl = document.getElementById('photoMismatchReason');
+    var reason = reasonEl ? reasonEl.value.trim() : '';
+    if(!reason || !S.pendingCheckout) return;
+    setState({busy:true});
+    var pc = S.pendingCheckout;
+    finishCheckout(pc.active, pc.pos, pc.orders, pc.payment, pc.notes, reason);
+  },
+  cancelPhotoMismatch: function(){ setState({busy:false, pendingCheckout:null, photoMismatchInfo:null}); },
 
   openEditVisit: function(el){
     var checkin = el.getAttribute('data-checkin');
@@ -1357,6 +1602,13 @@ function syncOrderItemsFromDOM(){
     S.orderItems[idx][field] = field==='product' ? f.value : f.value;
   });
 }
+function syncOrderFormFromDOM(){
+  syncOrderItemsFromDOM();
+  var paymentEl = document.getElementById('orderPayment');
+  var notesEl = document.getElementById('orderNotesInput');
+  if(paymentEl) S.orderPaymentDraft = paymentEl.value;
+  if(notesEl) S.orderNotesDraft = notesEl.value;
+}
 function syncEditOrderItemsFromDOM(){
   var fields = document.querySelectorAll('[data-editorder-field]');
   fields.forEach(function(f){
@@ -1410,6 +1662,35 @@ function finalizeCheckin(pos, storeName, meta){
   });
 }
 
+function finishCheckout(active, pos, orders, payment, notes, mismatchReason){
+  var checkoutTime = new Date();
+  var durationMinutes = (checkoutTime - new Date(active.checkinTime))/60000;
+  var hasPhoto = payment > 0 && S.paymentPhoto && S.paymentPhoto.status==='ready';
+  if(hasPhoto && mismatchReason == null){
+    var mismatch = evaluatePhotoMismatch(S.paymentPhoto, pos, checkoutTime);
+    if(mismatch){
+      setState({busy:false, pendingCheckout:{active:active, pos:pos, orders:orders, payment:payment, notes:notes}, photoMismatchInfo:mismatch});
+      return;
+    }
+  }
+  var uploadStep = hasPhoto ? uploadPaymentPhoto(active.id, S.paymentPhoto.dataUrl) : Promise.resolve(null);
+  uploadStep.then(function(uploadResult){
+    var updatedVisit = Object.assign({}, active, {checkoutTime:checkoutTime.toISOString(), checkoutLat:pos.lat||null, checkoutLng:pos.lng||null, status:'done', durationMinutes:durationMinutes, orders:orders, payment:payment, notes:notes});
+    if(hasPhoto){
+      updatedVisit.paymentPhotoUrl = uploadResult && uploadResult.url ? uploadResult.url : null;
+      updatedVisit.paymentPhotoTime = S.paymentPhoto.photoTime;
+      updatedVisit.paymentPhotoLat = S.paymentPhoto.lat;
+      updatedVisit.paymentPhotoLng = S.paymentPhoto.lng;
+      updatedVisit.paymentPhotoLocationSource = S.paymentPhoto.locationSource;
+      updatedVisit.paymentPhotoMismatch = !!mismatchReason;
+      updatedVisit.paymentPhotoMismatchReason = mismatchReason || '';
+    }
+    return upsertVisit(updatedVisit);
+  }).then(function(){ return refreshVisitsSilent(); })
+    .then(function(){ setState({busy:false, orderFormOpen:false, orderPaymentDraft:'', orderNotesDraft:'', paymentPhoto:null, pendingCheckout:null, photoMismatchInfo:null}); })
+    .catch(function(e){ setState({busy:false}); alertSaveError(e); });
+}
+
 function refreshVisitsSilent(){
   return loadVisits().then(function(v){ S.visits=v; }).catch(function(e){ console.error('gagal muat kunjungan', e); });
 }
@@ -1429,6 +1710,11 @@ document.getElementById('app').addEventListener('change', function(e){
     if(file) showToast('Memproses file "'+file.name+'"...', false);
     handleImportUsersFile(file);
     e.target.value = '';
+  }
+  if(e.target.id === 'orderPaymentPhoto'){
+    var photoFile = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if(photoFile) Actions.selectPaymentPhoto(photoFile);
   }
 });
 document.getElementById('app').addEventListener('input', function(e){
