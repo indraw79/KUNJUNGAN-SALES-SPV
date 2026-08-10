@@ -1373,7 +1373,7 @@ var Actions = {
     getPosition().then(function(pos){
       if(pos.error){ setState({busy:false}); showToast('Gagal mengambil lokasi check-out: '+pos.error, true); return; }
       finishCheckout(active, pos, orders, payment, notes, null);
-    });
+    }).catch(function(e){ setState({busy:false}); alertSaveError(e); });
   },
   confirmPhotoMismatch: function(){
     var reasonEl = document.getElementById('photoMismatchReason');
@@ -1663,32 +1663,38 @@ function finalizeCheckin(pos, storeName, meta){
 }
 
 function finishCheckout(active, pos, orders, payment, notes, mismatchReason){
-  var checkoutTime = new Date();
-  var durationMinutes = (checkoutTime - new Date(active.checkinTime))/60000;
-  var hasPhoto = payment > 0 && S.paymentPhoto && S.paymentPhoto.status==='ready';
-  if(hasPhoto && mismatchReason == null){
-    var mismatch = evaluatePhotoMismatch(S.paymentPhoto, pos, checkoutTime);
-    if(mismatch){
-      setState({busy:false, pendingCheckout:{active:active, pos:pos, orders:orders, payment:payment, notes:notes}, photoMismatchInfo:mismatch});
-      return;
+  try {
+    var checkoutTime = new Date();
+    var durationMinutes = (checkoutTime - new Date(active.checkinTime))/60000;
+    var hasPhoto = payment > 0 && S.paymentPhoto && S.paymentPhoto.status==='ready';
+    if(hasPhoto && mismatchReason == null){
+      var mismatch = evaluatePhotoMismatch(S.paymentPhoto, pos, checkoutTime);
+      if(mismatch){
+        setState({busy:false, pendingCheckout:{active:active, pos:pos, orders:orders, payment:payment, notes:notes}, photoMismatchInfo:mismatch});
+        return;
+      }
     }
+    var uploadStep = hasPhoto ? uploadPaymentPhoto(active.id, S.paymentPhoto.dataUrl) : Promise.resolve(null);
+    uploadStep.then(function(uploadResult){
+      var updatedVisit = Object.assign({}, active, {checkoutTime:checkoutTime.toISOString(), checkoutLat:pos.lat||null, checkoutLng:pos.lng||null, status:'done', durationMinutes:durationMinutes, orders:orders, payment:payment, notes:notes});
+      if(hasPhoto){
+        updatedVisit.paymentPhotoUrl = uploadResult && uploadResult.url ? uploadResult.url : null;
+        updatedVisit.paymentPhotoTime = S.paymentPhoto.photoTime;
+        updatedVisit.paymentPhotoLat = S.paymentPhoto.lat;
+        updatedVisit.paymentPhotoLng = S.paymentPhoto.lng;
+        updatedVisit.paymentPhotoLocationSource = S.paymentPhoto.locationSource;
+        updatedVisit.paymentPhotoMismatch = !!mismatchReason;
+        updatedVisit.paymentPhotoMismatchReason = mismatchReason || '';
+      }
+      return upsertVisit(updatedVisit);
+    }).then(function(){ return refreshVisitsSilent(); })
+      .then(function(){ setState({busy:false, orderFormOpen:false, orderPaymentDraft:'', orderNotesDraft:'', paymentPhoto:null, pendingCheckout:null, photoMismatchInfo:null}); })
+      .catch(function(e){ setState({busy:false}); alertSaveError(e); });
+  } catch(e){
+    console.error('finishCheckout gagal', e);
+    setState({busy:false});
+    alertSaveError(e);
   }
-  var uploadStep = hasPhoto ? uploadPaymentPhoto(active.id, S.paymentPhoto.dataUrl) : Promise.resolve(null);
-  uploadStep.then(function(uploadResult){
-    var updatedVisit = Object.assign({}, active, {checkoutTime:checkoutTime.toISOString(), checkoutLat:pos.lat||null, checkoutLng:pos.lng||null, status:'done', durationMinutes:durationMinutes, orders:orders, payment:payment, notes:notes});
-    if(hasPhoto){
-      updatedVisit.paymentPhotoUrl = uploadResult && uploadResult.url ? uploadResult.url : null;
-      updatedVisit.paymentPhotoTime = S.paymentPhoto.photoTime;
-      updatedVisit.paymentPhotoLat = S.paymentPhoto.lat;
-      updatedVisit.paymentPhotoLng = S.paymentPhoto.lng;
-      updatedVisit.paymentPhotoLocationSource = S.paymentPhoto.locationSource;
-      updatedVisit.paymentPhotoMismatch = !!mismatchReason;
-      updatedVisit.paymentPhotoMismatchReason = mismatchReason || '';
-    }
-    return upsertVisit(updatedVisit);
-  }).then(function(){ return refreshVisitsSilent(); })
-    .then(function(){ setState({busy:false, orderFormOpen:false, orderPaymentDraft:'', orderNotesDraft:'', paymentPhoto:null, pendingCheckout:null, photoMismatchInfo:null}); })
-    .catch(function(e){ setState({busy:false}); alertSaveError(e); });
 }
 
 function refreshVisitsSilent(){
