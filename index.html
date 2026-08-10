@@ -235,7 +235,23 @@ function showToast(message, isError){
   document.body.appendChild(toast);
   setTimeout(function(){ if(toast.parentNode) toast.parentNode.removeChild(toast); }, 7000);
 }
-function alertSaveError(e){ showToast('Gagal menyimpan: ' + (e && e.message ? e.message : 'terjadi kesalahan') + '. Periksa koneksi internet Anda lalu coba lagi.', true); }
+function alertSaveError(e){ reportClientError('alertSaveError', e); showToast('Gagal menyimpan: ' + (e && e.message ? e.message : 'terjadi kesalahan') + '. Periksa koneksi internet Anda lalu coba lagi.', true); }
+function reportClientError(context, err, extra){
+  try {
+    var payload = {
+      message: (err && err.message) ? String(err.message) : String(err),
+      stack: (err && err.stack) ? String(err.stack) : '',
+      context: context,
+      salesUsername: (S.session && S.session.username) || '',
+      salesName: (S.session && S.session.name) || '',
+      visitId: (extra && extra.visitId) || '',
+      userAgent: navigator.userAgent || '',
+      url: location.href,
+      timestamp: new Date().toISOString()
+    };
+    fetch('/api/log-error', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)}).catch(function(){});
+  } catch(e2){ /* logging must never itself break the app */ }
+}
 
 function haversineMeters(lat1,lng1,lat2,lng2){
   var R=6371000; function toRad(d){ return d*Math.PI/180; }
@@ -1351,6 +1367,7 @@ var Actions = {
       });
     }).catch(function(e){
       console.error('gagal memproses foto', e);
+      reportClientError('selectPaymentPhoto', e);
       setState({paymentPhoto:{status:'error', error:(e&&e.message)||'Gagal memproses foto'}});
     });
   },
@@ -1700,6 +1717,16 @@ function finishCheckout(active, pos, orders, payment, notes, mismatchReason){
 function refreshVisitsSilent(){
   return loadVisits().then(function(v){ S.visits=v; }).catch(function(e){ console.error('gagal muat kunjungan', e); });
 }
+
+/* Safety net: report any error that reaches here uncaught (e.g. an exception thrown inside an
+   async callback like img.onload/canvas.toBlob, which no local .catch() can ever see) so it's
+   still visible server-side instead of silently hanging the UI with zero diagnostic trail. */
+window.addEventListener('error', function(ev){
+  reportClientError('window.onerror', ev.error || new Error(ev.message));
+});
+window.addEventListener('unhandledrejection', function(ev){
+  reportClientError('unhandledrejection', ev.reason);
+});
 
 /* ---------------- event delegation ---------------- */
 document.getElementById('app').addEventListener('click', function(e){
