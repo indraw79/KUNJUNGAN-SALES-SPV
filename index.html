@@ -547,6 +547,7 @@ function handleImportUsersFile(file){
 /* ---------------- state ---------------- */
 var S = {
   screen:'loading', errorMsg:'',
+  locationCheckResult:null, locationCheckBusy:false,
   session:null,
   visits:[],
   storeNames:[],
@@ -704,6 +705,36 @@ function screenLogin(){
       '<button class="btn btn-accent" style="width:100%;" data-action="submitLogin" '+(S.busy?'disabled':'')+'>'+(S.busy?'Memproses...':'Masuk')+'</button>' +
     '</div>' +
     '<p class="muted xs" style="text-align:center;margin-top:24px;">Belum punya akun? Minta supervisor/owner membuatkan di menu "Kelola User".</p>' +
+    '<button type="button" class="btn btn-ghost btn-sm" style="width:100%;margin-top:8px;" data-action="openLocationCheck">📍 Cek Lokasi GPS</button>' +
+    '</div></div>';
+}
+function screenLocationCheck(){
+  var r = S.locationCheckResult;
+  var resultHtml = '';
+  if(S.locationCheckBusy){
+    resultHtml = '<p class="small muted" style="margin-top:16px;"><span class="spin">⟳</span> Membaca lokasi GPS...</p>';
+  } else if(r && r.error){
+    resultHtml = '<div class="small" style="color:var(--danger);margin-top:16px;">⚠ '+esc(r.error)+'</div>';
+  } else if(r){
+    var acc = r.accuracy;
+    var tone, label;
+    if(acc<50){ tone='#2E7D4F'; label='✅ Akurat, siap dipakai'; }
+    else if(acc<=300){ tone='#B8862B'; label='⚠️ Cukup, tapi bisa lebih presisi'; }
+    else { tone='var(--danger)'; label='❌ Kurang presisi'; }
+    resultHtml = '<div style="margin-top:16px;padding:14px;border-radius:12px;border:1px solid rgba(0,0,0,.1);">' +
+      '<div class="mono small">Lat: '+r.lat.toFixed(7)+'<br>Lng: '+r.lng.toFixed(7)+'</div>' +
+      '<div class="small" style="margin-top:6px;">Akurasi: <span class="mono">'+Math.round(acc)+' m</span></div>' +
+      '<div class="small" style="margin-top:6px;font-weight:600;color:'+tone+';">'+label+'</div>' +
+      (acc>300 ? '<p class="xs muted" style="margin-top:8px;line-height:1.5;">Coba cek: Setelan HP → Aplikasi → (nama browser) → Izin → Lokasi → pastikan "Gunakan lokasi tepat/Precise" AKTIF (bukan "Perkiraan/Approximate"), aktifkan GPS, dan coba di tempat terbuka.</p>' : '') +
+    '</div>';
+  }
+  return '<div class="center-screen" style="align-items:stretch;text-align:left;">' +
+    '<div style="max-width:380px;margin:0 auto;width:100%;">' +
+    '<h1 class="display" style="font-size:22px;color:var(--primary);margin:0 0 4px;">📍 Cek Lokasi GPS</h1>' +
+    '<p class="muted small" style="margin:0 0 16px;">Cek koordinat & akurasi GPS HP ini sebelum mulai kerja.</p>' +
+    '<button class="btn btn-accent" style="width:100%;" data-action="recheckLocation" '+(S.locationCheckBusy?'disabled':'')+'>🔄 Cek Lokasi Sekarang</button>' +
+    resultHtml +
+    '<button type="button" class="btn btn-ghost" style="width:100%;margin-top:20px;" data-action="backToLogin">← Kembali ke Login</button>' +
     '</div></div>';
 }
 
@@ -1182,6 +1213,8 @@ function render(){
     html = screenSetup();
   } else if(S.screen==='login'){
     html = screenLogin();
+  } else if(S.screen==='locationcheck'){
+    html = screenLocationCheck();
   } else if(S.screen==='sales'){
     html = screenSales();
   } else if(S.screen==='dashboard'){
@@ -1212,6 +1245,13 @@ function startTimerIfNeeded(){
 /* ---------------- actions ---------------- */
 var Actions = {
   retryAuth: function(){ initAuth(); },
+
+  openLocationCheck: function(){ setState({screen:'locationcheck', locationCheckResult:null}); Actions.recheckLocation(); },
+  backToLogin: function(){ setState({screen:'login', locationCheckResult:null, locationCheckBusy:false}); },
+  recheckLocation: function(){
+    setState({locationCheckBusy:true, locationCheckResult:null});
+    getPosition().then(function(pos){ setState({locationCheckBusy:false, locationCheckResult:pos}); });
+  },
 
   submitSetup: function(){
     var name=(document.getElementById('su_name').value||'').trim();
@@ -1705,7 +1745,12 @@ function finishCheckout(active, pos, orders, payment, notes, mismatchReason){
       }
       return upsertVisit(updatedVisit);
     }).then(function(){ return refreshVisitsSilent(); })
-      .then(function(){ setState({busy:false, orderFormOpen:false, orderPaymentDraft:'', orderNotesDraft:'', paymentPhoto:null, pendingCheckout:null, photoMismatchInfo:null}); })
+      .then(function(){
+        setState({busy:false, orderFormOpen:false, orderPaymentDraft:'', orderNotesDraft:'', paymentPhoto:null, pendingCheckout:null, photoMismatchInfo:null});
+        showToast('Kunjungan tersimpan.');
+        // Reload halaman: GPS berikutnya (check-in toko selanjutnya) kadang lebih presisi setelah reload penuh.
+        setTimeout(function(){ location.reload(); }, 300);
+      })
       .catch(function(e){ setState({busy:false}); alertSaveError(e); });
   } catch(e){
     console.error('finishCheckout gagal', e);
