@@ -13,6 +13,42 @@ function parseVal(v) {
   return v; // already an object (some client versions auto-parse)
 }
 
+// Notifikasi WA saat kunjungan baru selesai checkout DENGAN order/pembayaran (bukan setiap
+// checkout). Token & nomor tujuan dari Vercel Environment Variables, bukan hardcode/Redis --
+// mengikuti pola Redis.fromEnv()/Blob token yang sudah ada di codebase ini. Kalau env var belum
+// diisi, lewati diam-diam (jangan sampai simpan kunjungan gagal gara-gara notifikasi belum setup).
+async function kirimNotifikasiWA(visit) {
+  const token = process.env.FONNTE_TOKEN;
+  const targetsRaw = process.env.WA_NOTIF_TARGETS;
+  if (!token || !targetsRaw) return;
+
+  const targets = targetsRaw.split(',').map(function (t) { return t.trim(); }).filter(Boolean);
+  if (targets.length === 0) return;
+
+  const orders = Array.isArray(visit.orders) ? visit.orders : [];
+  const daftarBarang = orders.length
+    ? orders.map(function (o, i) {
+        return (i + 1) + '. ' + o.product + ' - ' + o.qty + ' x Rp' + Number(o.price || 0).toLocaleString('id-ID');
+      }).join('\n')
+    : '-';
+  const totalBayar = Number(visit.payment) > 0 ? 'Rp' + Number(visit.payment).toLocaleString('id-ID') : '-';
+
+  const pesan = '📍 Kunjungan Sales Baru!\n' +
+    'Toko: ' + (visit.storeName || '-') + '\n' +
+    'Sales: ' + (visit.salesName || '-') + '\n' +
+    'Catatan: ' + (visit.notes || '-') + '\n\n' +
+    'Daftar Order:\n' + daftarBarang + '\n\n' +
+    'Pembayaran: ' + totalBayar;
+
+  await Promise.all(targets.map(function (target) {
+    return fetch('https://api.fonnte.com/send', {
+      method: 'POST',
+      headers: { Authorization: token, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ target: target, message: pesan }),
+    });
+  }));
+}
+
 async function migrateFromLegacyIfNeeded() {
   const already = await redis.get(MIGRATION_FLAG_KEY);
   if (already) return;
@@ -54,9 +90,23 @@ export default async function handler(req, res) {
         res.status(400).json({ error: 'visit dengan id wajib diisi' });
         return;
       }
+      const oldVisit = parseVal(await redis.hget(HASH_KEY, visit.id));
+
       const field = {};
       field[visit.id] = JSON.stringify(visit);
       await redis.hset(HASH_KEY, field);
+
+      // Deteksi "baru pertama kali checkout dengan order/pembayaran" lewat transisi status
+      // active->done, supaya edit kunjungan lama (submitEditVisit, sudah done sebelumnya) tidak
+      // ikut memicu notifikasi berulang.
+      const baruSelesai = (!oldVisit || oldVisit.status !== 'done') && visit.status === 'done';
+      const adaOrderAtauBayar = (Array.isArray(visit.orders) && visit.orders.length > 0) || Number(visit.payment) > 0;
+      if (baruSelesai && adaOrderAtauBayar) {
+        await kirimNotifikasiWA(visit).catch(function (e) {
+          console.error('gagal kirim notifikasi WA', e);
+        });
+      }
+
       res.status(200).json({ ok: true });
       return;
     }
