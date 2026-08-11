@@ -20,11 +20,9 @@ function parseVal(v) {
 async function kirimNotifikasiWA(visit) {
   const token = process.env.FONNTE_TOKEN;
   const targetsRaw = process.env.WA_NOTIF_TARGETS;
-  console.log('[debug-wa-notif]', 'tokenLen=' + (token ? token.length : 0), 'targetsRaw=' + JSON.stringify(targetsRaw));
-  if (!token || !targetsRaw) { console.log('[debug-wa-notif]', 'berhenti: token/targetsRaw kosong'); return; }
+  if (!token || !targetsRaw) return;
 
   const targets = targetsRaw.split(',').map(function (t) { return t.trim(); }).filter(Boolean);
-  console.log('[debug-wa-notif]', 'targets=' + JSON.stringify(targets));
   if (targets.length === 0) return;
 
   const orders = Array.isArray(visit.orders) ? visit.orders : [];
@@ -103,7 +101,6 @@ export default async function handler(req, res) {
       // ikut memicu notifikasi berulang.
       const baruSelesai = (!oldVisit || oldVisit.status !== 'done') && visit.status === 'done';
       const adaOrderAtauBayar = (Array.isArray(visit.orders) && visit.orders.length > 0) || Number(visit.payment) > 0;
-      console.log('[debug-wa-notif]', 'oldStatus=' + (oldVisit ? oldVisit.status : 'null'), 'newStatus=' + visit.status, 'baruSelesai=' + baruSelesai, 'adaOrderAtauBayar=' + adaOrderAtauBayar);
       if (baruSelesai && adaOrderAtauBayar) {
         await kirimNotifikasiWA(visit).catch(function (e) {
           console.error('gagal kirim notifikasi WA', e);
