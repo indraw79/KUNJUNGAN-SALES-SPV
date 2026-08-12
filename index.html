@@ -111,8 +111,7 @@ function loadVisits(){
   return withTimeout(fetch('/api/visits?_='+bust, {cache:'no-store'}).then(function(res){
     if(!res.ok) throw new Error('Gagal memuat data kunjungan (status '+res.status+')');
     return res.json();
-  })).then(function(data){ return data.visits || []; })
-    .catch(function(e){ if(e && e.message==='Waktu tunggu server habis') throw e; return []; });
+  })).then(function(data){ return data.visits || []; });
 }
 function upsertVisit(visit){
   return withTimeout(fetch('/api/visits', {
