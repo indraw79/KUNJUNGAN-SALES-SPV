@@ -1703,18 +1703,37 @@ function geocodeStoreBestEffort(storeKey, lat, lng){
 }
 
 function finalizeCheckin(pos, storeName, meta){
-  var newVisit = {
-    id:uid(), salesName:S.session.name, storeName:storeName,
-    checkinTime:new Date().toISOString(), checkinLat:pos.lat, checkinLng:pos.lng, checkinAccuracy:pos.accuracy,
-    checkinDistanceMeters: meta.distanceMeters, checkinOutOfRadius: !!meta.outOfRadius,
-    checkinOverrideReason: meta.overrideReason||'', isNewStore: !!meta.isNewStore,
-    checkoutTime:null, checkoutLat:null, checkoutLng:null,
-    status:'active', orders:[], payment:0, notes:''
-  };
-  upsertVisit(newVisit).then(function(){ return refreshVisitsSilent(); }).then(function(){
-    setState({checkinStage:'idle', outOfRadius:null, busy:false});
-  }).catch(function(e){
-    setState({busy:false, gpsError:'Gagal menyimpan check-in: '+(e&&e.message?e.message:'terjadi kesalahan')+'. Coba lagi.'});
+  function saveNewCheckin(){
+    var newVisit = {
+      id:uid(), salesName:S.session.name, storeName:storeName,
+      checkinTime:new Date().toISOString(), checkinLat:pos.lat, checkinLng:pos.lng, checkinAccuracy:pos.accuracy,
+      checkinDistanceMeters: meta.distanceMeters, checkinOutOfRadius: !!meta.outOfRadius,
+      checkinOverrideReason: meta.overrideReason||'', isNewStore: !!meta.isNewStore,
+      checkoutTime:null, checkoutLat:null, checkoutLng:null,
+      status:'active', orders:[], payment:0, notes:''
+    };
+    upsertVisit(newVisit).then(function(){ return refreshVisitsSilent(); }).then(function(){
+      setState({checkinStage:'idle', outOfRadius:null, busy:false});
+    }).catch(function(e){
+      setState({busy:false, gpsError:'Gagal menyimpan check-in: '+(e&&e.message?e.message:'terjadi kesalahan')+'. Coba lagi.'});
+    });
+  }
+  // Re-cek ke server (bukan S.visits lokal yang mungkin sudah basi) tepat sebelum menyimpan --
+  // mencegah kunjungan aktif dobel kalau sales sempat menekan Check-in dua kali (mis. GPS lambat
+  // ~30 detik lalu dicoba ulang) sebelum layar sempat menampilkan kunjungan aktif yang pertama.
+  loadVisits().then(function(freshVisits){
+    var already = freshVisits.some(function(v){ return v.salesName===S.session.name && v.status==='active'; });
+    if(already){
+      S.visits = freshVisits;
+      setState({checkinStage:'idle', outOfRadius:null, busy:false});
+      showToast('Anda sudah punya kunjungan aktif. Selesaikan dulu sebelum check-in baru.', true);
+      return;
+    }
+    saveNewCheckin();
+  }).catch(function(){
+    // Gagal cek status terbaru (mis. jaringan bermasalah) -- jangan blokir check-in sama sekali,
+    // lanjutkan seperti semula supaya sales tidak macet total gara-gara satu pengecekan gagal.
+    saveNewCheckin();
   });
 }
 
