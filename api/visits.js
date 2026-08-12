@@ -45,6 +45,12 @@ async function kirimNotifikasiWA(visit) {
       method: 'POST',
       headers: { Authorization: token, 'Content-Type': 'application/json' },
       body: JSON.stringify({ target: target, message: pesan }),
+    }).then(function (r) {
+      return r.text().then(function (t) {
+        console.log('[debug-wa-notif] target=' + target + ' status=' + r.status + ' body=' + t);
+      });
+    }).catch(function (e) {
+      console.log('[debug-wa-notif] target=' + target + ' fetch-error=' + (e && e.message));
     });
   }));
 }
