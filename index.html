@@ -136,6 +136,27 @@ function loadDismissedDupes(){
 }
 function saveDismissedDupes(d){ return withTimeout(apiSet(DISMISSED_DUPES_KEY, d)).catch(function(e){ console.error('gagal simpan dismissed dupes', e); throw e; }); }
 function dupePairKey(keyA, keyB){ return [keyA, keyB].sort().join('|'); }
+function mergeStoreNames(keepKey, dropKey){
+  return Promise.all([loadVisits(), loadStores()]).then(function(res){
+    var freshVisits = res[0], freshStores = res[1];
+    var keepStore = freshStores[keepKey], dropStore = freshStores[dropKey];
+    if(!keepStore || !dropStore) throw new Error('Data toko sudah berubah, muat ulang halaman.');
+    var keepName = keepStore.name, dropName = dropStore.name;
+    var toMove = freshVisits.filter(function(v){ return v.storeName===dropName; });
+    return Promise.all(toMove.map(function(v){
+      return upsertVisit(Object.assign({}, v, {storeName:keepName}));
+    })).then(function(){
+      var updatedStores = Object.assign({}, freshStores);
+      delete updatedStores[dropKey];
+      return saveStores(updatedStores).then(function(){
+        var updatedVisits = freshVisits.map(function(v){
+          return v.storeName===dropName ? Object.assign({}, v, {storeName:keepName}) : v;
+        });
+        return {stores:updatedStores, visits:updatedVisits, keepName:keepName, movedCount:toMove.length};
+      });
+    });
+  });
+}
 function computeSuspectedDuplicates(stores, dismissed){
   var keys = Object.keys(stores);
   var pairs = [];
@@ -561,6 +582,7 @@ var S = {
   editingVisit:null, editOrderItems:[],
   manualEntryOpen:false, manualOrderItems:[],
   storeRadiusDrafts:{}, dismissedDupes:{}, storeNameDraft:'', nearbyStores:[],
+  mergePickerKey:null, mergeBusyKey:null,
   users:{}, resetKey:null, confirmReset:null,
   setupDraft:{},
   timerHandle:null
@@ -1092,11 +1114,28 @@ function storesManagementHTML(){
       '<p class="xs muted" style="margin:0 0 10px;">Dua nama toko dengan titik lokasi berdekatan (≤'+DUPLICATE_DISTANCE_THRESHOLD+'m) — cek ke lapangan, lalu tandai "Toko Berbeda" kalau sudah dikonfirmasi bukan toko yang sama.</p>';
     dupes.forEach(function(p){
       var sa = visitStatsForStoreName(p.a.name), sb = visitStatsForStoreName(p.b.name);
+      var isBusy = S.mergeBusyKey===p.pairKey, showPicker = S.mergePickerKey===p.pairKey;
+      var actionsHtml;
+      if(isBusy){
+        actionsHtml = '<span class="xs muted">Menggabungkan...</span>';
+      } else if(showPicker){
+        actionsHtml = '<div class="xs muted" style="margin-bottom:6px;">Pilih nama yang dipakai (kunjungan dari nama lain akan dipindahkan ke sini):</div>' +
+          '<div class="row gap6" style="flex-wrap:wrap;">' +
+          '<button class="btn btn-dark btn-sm" data-action="mergeStorePair" data-keya="'+esc(p.keyA)+'" data-keyb="'+esc(p.keyB)+'" data-keep="a">'+esc(p.a.name)+'</button>' +
+          '<button class="btn btn-dark btn-sm" data-action="mergeStorePair" data-keya="'+esc(p.keyA)+'" data-keyb="'+esc(p.keyB)+'" data-keep="b">'+esc(p.b.name)+'</button>' +
+          '<button class="btn btn-outline btn-sm" data-action="toggleMergePicker" data-pairkey="'+esc(p.pairKey)+'">Batal</button>' +
+          '</div>';
+      } else {
+        actionsHtml = '<div class="row gap6" style="flex-wrap:wrap;">' +
+          '<button class="btn btn-outline btn-sm" data-action="dismissDuplicatePair" data-keya="'+esc(p.keyA)+'" data-keyb="'+esc(p.keyB)+'">Toko Berbeda (hilangkan peringatan)</button>' +
+          '<button class="btn btn-outline btn-sm" data-action="toggleMergePicker" data-pairkey="'+esc(p.pairKey)+'">Toko Sama (gabungkan)</button>' +
+          '</div>';
+      }
       html += '<div class="card2" style="margin-bottom:8px;padding:10px;'+(p.identical?'border:1px solid #C1502E;':'')+'">' +
         '<div class="xs" style="margin-bottom:6px;">'+(p.identical?'<b style="color:#C1502E;">🚨 TITIK IDENTIK</b> ('+p.dist+'m)':'<b>'+p.dist+'m</b>')+' antara dua toko:</div>' +
         '<div class="xs" style="margin-bottom:4px;">• <b>'+esc(p.a.name)+'</b> — '+esc(p.a.createdBy||'-')+', '+sa.count+' kunjungan, '+rp(sa.order)+' order, '+rp(sa.payment)+' dibayar</div>' +
         '<div class="xs" style="margin-bottom:8px;">• <b>'+esc(p.b.name)+'</b> — '+esc(p.b.createdBy||'-')+', '+sb.count+' kunjungan, '+rp(sb.order)+' order, '+rp(sb.payment)+' dibayar</div>' +
-        '<button class="btn btn-outline btn-sm" data-action="dismissDuplicatePair" data-keya="'+esc(p.keyA)+'" data-keyb="'+esc(p.keyB)+'">Toko Berbeda (hilangkan peringatan)</button>' +
+        actionsHtml +
       '</div>';
     });
     html += '</div>';
@@ -1549,6 +1588,25 @@ var Actions = {
     var dismissed=Object.assign({}, S.dismissedDupes);
     dismissed[pairKey]={dismissedBy:S.session.name, dismissedAt:new Date().toISOString()};
     saveDismissedDupes(dismissed).then(function(){ S.dismissedDupes=dismissed; showToast('✓ Ditandai sebagai toko berbeda.', false); render(); }).catch(alertSaveError);
+  },
+  toggleMergePicker: function(el){
+    var pairKey=el.getAttribute('data-pairkey');
+    setState({mergePickerKey: S.mergePickerKey===pairKey ? null : pairKey});
+  },
+  mergeStorePair: function(el){
+    var keyA=el.getAttribute('data-keya'), keyB=el.getAttribute('data-keyb'), keep=el.getAttribute('data-keep');
+    var keepKey = keep==='a' ? keyA : keyB, dropKey = keep==='a' ? keyB : keyA;
+    var pairKey=dupePairKey(keyA, keyB);
+    setState({mergeBusyKey:pairKey, mergePickerKey:null});
+    mergeStoreNames(keepKey, dropKey).then(function(result){
+      S.storesCache = result.stores;
+      S.visits = result.visits;
+      setState({mergeBusyKey:null});
+      showToast('✓ Digabungkan ke "'+result.keepName+'" ('+result.movedCount+' kunjungan dipindahkan).', false);
+    }).catch(function(e){
+      setState({mergeBusyKey:null});
+      alertSaveError(e);
+    });
   },
   saveLocationLabels: function(el){
     var key=el.getAttribute('data-key');
