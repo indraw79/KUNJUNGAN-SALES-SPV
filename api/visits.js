@@ -17,7 +17,14 @@ function parseVal(v) {
 // checkout). Token & nomor tujuan dari Vercel Environment Variables, bukan hardcode/Redis --
 // mengikuti pola Redis.fromEnv()/Blob token yang sudah ada di codebase ini. Kalau env var belum
 // diisi, lewati diam-diam (jangan sampai simpan kunjungan gagal gara-gara notifikasi belum setup).
+// Dinonaktifkan sementara (2026-08-14): device Fonnte pengirim sempat disconnect berkali-kali dan
+// message history menunjukkan banyak percobaan kirim ke nomor tujuan -- dihentikan dulu supaya
+// nomor/device tidak terbaca sebagai spam dan kena cekal WhatsApp. Hapus baris return di bawah
+// untuk mengaktifkan kembali setelah device Fonnte dipastikan stabil.
+const NOTIF_WA_ENABLED = false;
+
 async function kirimNotifikasiWA(visit) {
+  if (!NOTIF_WA_ENABLED) return;
   const token = process.env.FONNTE_TOKEN;
   const targetsRaw = process.env.WA_NOTIF_TARGETS;
   if (!token || !targetsRaw) return;
