@@ -1220,7 +1220,6 @@ function usersManagementHTML(){
     '<h4 class="xs" style="text-transform:uppercase;margin:0 0 4px;color:var(--danger);">⚠ Reset Data</h4>' +
     '<p class="xs muted" style="margin:0 0 12px;">Bersih-bersih data uji coba/trial. Akun (Kelola User) tidak ikut terhapus.</p>' +
     resetRow('visits', 'Hapus Semua Riwayat Kunjungan', 'Menghapus semua data check-in/check-out & laporan order.') +
-    resetRow('stores', 'Hapus Semua Data Toko', 'Menghapus titik GPS toko yang terdaftar — toko akan mendaftar ulang lokasinya saat check-in berikutnya.') +
   '</div>';
 
   return html;
@@ -1677,14 +1676,11 @@ var Actions = {
 
   askResetData: function(el){ setState({confirmReset: el.getAttribute('data-kind')}); },
   cancelResetData: function(){ setState({confirmReset: null}); },
-  confirmResetData: function(el){
-    var kind = el.getAttribute('data-kind');
-    var task = kind==='visits' ? clearAllVisits() : saveStores({});
-    task.then(function(){
+  confirmResetData: function(){
+    clearAllVisits().then(function(){
       setState({confirmReset: null});
-      if(kind==='visits'){ S.visits = []; }
-      if(kind==='stores'){ S.storesCache = {}; }
-      showToast('✓ Data '+(kind==='visits'?'riwayat kunjungan':'toko')+' berhasil dihapus.', false);
+      S.visits = [];
+      showToast('✓ Data riwayat kunjungan berhasil dihapus.', false);
       render();
     }).catch(function(e){
       setState({confirmReset: null});
