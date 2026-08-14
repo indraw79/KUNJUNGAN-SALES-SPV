@@ -128,7 +128,14 @@ function clearAllVisits(){
   })).catch(function(e){ console.error('gagal hapus visits', e); throw e; });
 }
 function loadStores(){
-  return withTimeout(apiGet(STORES_KEY)).then(function(v){ return v || {}; }).catch(function(){ return {}; });
+  return withTimeout(apiGet(STORES_KEY)).then(function(v){ return v || {}; }).catch(function(e){
+    return new Promise(function(resolve){ setTimeout(resolve, 1500); }).then(function(){
+      return withTimeout(apiGet(STORES_KEY)).then(function(v){ return v || {}; });
+    }).catch(function(e2){
+      reportClientError('loadStores', e2);
+      return {};
+    });
+  });
 }
 function saveStores(s){ return withTimeout(apiSet(STORES_KEY, s)).catch(function(e){ console.error('gagal simpan stores', e); throw e; }); }
 function loadDismissedDupes(){
@@ -1425,7 +1432,7 @@ var Actions = {
     var exifResult = {dateTimeOriginal:null, lat:null, lng:null};
     readFileAsArrayBuffer(file).then(function(buffer){
       exifResult = parseExif(buffer);
-      return compressImage(file);
+      return withTimeout(compressImage(file), 20000);
     }).then(function(blob){
       return blobToDataUrl(blob).then(function(dataUrl){
         var lat = exifResult.lat, lng = exifResult.lng;
