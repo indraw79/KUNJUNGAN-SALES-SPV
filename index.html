@@ -223,8 +223,12 @@ function visitStatsForStoreName(name){
   return {count:list.length, order:order, payment:pay};
 }
 function loadUsers(){
-  return withTimeout(apiGet(USERS_KEY)).then(function(v){ return v || {}; })
-    .catch(function(e){ if(e && e.message==='Waktu tunggu server habis') throw e; return {}; });
+  // Sengaja TIDAK menelan error jaringan jadi {} (dulu begitu) -- kalau gagal muat karena sinyal
+  // lemah/koneksi bermasalah, {} akan disalahartikan initAuth() sebagai "belum ada akun sama sekali"
+  // dan menampilkan layar "Buat akun Owner pertama", yang kalau disubmit akan MENIMPA SELURUH
+  // akun yang sudah ada (saveUsers/apiSet mengganti seluruh isi sft-users-v1, bukan gabung). Biarkan
+  // error tetap reject supaya initAuth() masuk ke screen:'autherror' (retry aman) alih-alih setup.
+  return withTimeout(apiGet(USERS_KEY)).then(function(v){ return v || {}; });
 }
 function saveUsers(u){ return withTimeout(apiSet(USERS_KEY, u)).catch(function(e){ console.error('gagal simpan users', e); throw e; }); }
 
@@ -1307,11 +1311,20 @@ var Actions = {
     if(pass!==pass2){ setState({errorMsg:'Konfirmasi password tidak cocok.'}); return; }
     setState({busy:true, errorMsg:''});
     var key=user.toLowerCase();
-    hashPassword(key, pass).then(function(hash){
+    // Re-cek ke server tepat sebelum simpan -- saveUsers() MENIMPA SELURUH akun yang ada (bukan
+    // gabung), jadi kalau ternyata sudah ada akun (mis. layar setup ini muncul keliru gara-gara
+    // loadUsers() sempat gagal), jangan sampai submit di sini menghapus semua akun asli.
+    loadUsers().then(function(existingUsers){
+      if(Object.keys(existingUsers).length > 0){
+        setState({busy:false, screen:'login', errorMsg:'Akun sudah pernah dibuat sebelumnya. Silakan login.'});
+        throw {handled:true};
+      }
+      return hashPassword(key, pass);
+    }).then(function(hash){
       var users={}; users[key]={username:key, displayName:name, passwordHash:hash, role:'owner', active:true, createdAt:new Date().toISOString()};
       return saveUsers(users);
     }).then(function(){ setState({busy:false}); initAuth(); })
-      .catch(function(e){ setState({busy:false, errorMsg:'Gagal menyimpan akun: '+(e&&e.message?e.message:'terjadi kesalahan')+'. Coba lagi.'}); });
+      .catch(function(e){ if(e && e.handled) return; setState({busy:false, errorMsg:'Gagal menyimpan akun: '+(e&&e.message?e.message:'terjadi kesalahan')+'. Coba lagi.'}); });
   },
 
   submitLogin: function(){
