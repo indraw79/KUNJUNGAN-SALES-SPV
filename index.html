@@ -567,14 +567,27 @@ function handleImportUsersFile(file){
     Promise.all(toCreate.map(function(u){
       return hashPassword(u.key, u.pass).then(function(hash){ return {key:u.key, hash:hash, name:u.name, role:u.role}; });
     })).then(function(results){
-      var users = Object.assign({}, S.users);
-      results.forEach(function(r){
-        users[r.key] = {username:r.key, displayName:r.name, passwordHash:r.hash, role:r.role, active:true, createdAt:new Date().toISOString()};
-      });
-      return saveUsers(users).then(function(){
-        S.users = users;
-        setState({errorMsg:''});
-        showToast('✓ Berhasil impor '+results.length+' akun.' + (skipped>0 ? (' '+skipped+' baris dilewati (kosong/duplikat/password kurang dari 4 karakter).') : ''), false);
+      // Muat ulang dari server tepat sebelum simpan -- S.users bisa basi kalau supervisor lain
+      // baru saja menambah/mengubah akun dari device lain; saveUsers() menimpa penuh, jadi kalau
+      // dasarnya cache lama, perubahan mereka bisa ikut terhapus (race condition antar-device).
+      return loadUsers().then(function(freshUsers){
+        var users = Object.assign({}, freshUsers);
+        var importedCount = 0, skippedNow = 0;
+        results.forEach(function(r){
+          if(users[r.key]){ skippedNow++; return; } // sudah dibuat di device lain sejak form diisi
+          users[r.key] = {username:r.key, displayName:r.name, passwordHash:r.hash, role:r.role, active:true, createdAt:new Date().toISOString()};
+          importedCount++;
+        });
+        if(importedCount===0){
+          showToast('Semua baris dilewati (username sudah dipakai, termasuk yang baru dibuat di device lain).', true);
+          return;
+        }
+        return saveUsers(users).then(function(){
+          S.users = users;
+          setState({errorMsg:''});
+          var totalSkipped = skipped + skippedNow;
+          showToast('✓ Berhasil impor '+importedCount+' akun.' + (totalSkipped>0 ? (' '+totalSkipped+' baris dilewati (kosong/duplikat/password kurang dari 4 karakter).') : ''), false);
+        });
       });
     }).catch(alertSaveError);
   };
@@ -1670,16 +1683,25 @@ var Actions = {
     var key=user.toLowerCase();
     if(S.users[key]){ setState({errorMsg:'Username sudah dipakai.'}); return; }
     hashPassword(key, pass).then(function(hash){
-      var users=Object.assign({}, S.users);
-      users[key]={username:key, displayName:name, passwordHash:hash, role:role, active:true, createdAt:new Date().toISOString()};
-      return saveUsers(users).then(function(){ S.users=users; setState({errorMsg:''}); });
-    }).catch(function(e){ setState({errorMsg:'Gagal membuat akun: '+(e&&e.message?e.message:'terjadi kesalahan')}); });
+      // Muat ulang dari server tepat sebelum simpan -- S.users bisa basi kalau supervisor lain
+      // baru saja menambah/mengubah akun dari device lain; saveUsers() menimpa penuh, jadi kalau
+      // dasarnya cache lama, perubahan mereka bisa ikut terhapus (race condition antar-device).
+      return loadUsers().then(function(freshUsers){
+        if(freshUsers[key]){ throw {handled:true, message:'Username sudah dipakai (baru dibuat di device lain).'}; }
+        var users=Object.assign({}, freshUsers);
+        users[key]={username:key, displayName:name, passwordHash:hash, role:role, active:true, createdAt:new Date().toISOString()};
+        return saveUsers(users).then(function(){ S.users=users; setState({errorMsg:''}); });
+      });
+    }).catch(function(e){ setState({errorMsg: (e&&e.handled) ? e.message : ('Gagal membuat akun: '+(e&&e.message?e.message:'terjadi kesalahan'))}); });
   },
   toggleActive: function(el){
     var key=el.getAttribute('data-key');
-    var users=Object.assign({}, S.users);
-    users[key]=Object.assign({}, users[key], {active: !users[key].active});
-    saveUsers(users).then(function(){ S.users=users; render(); }).catch(alertSaveError);
+    loadUsers().then(function(freshUsers){
+      var users=Object.assign({}, freshUsers);
+      if(!users[key]) throw new Error('Akun tidak ditemukan (mungkin sudah dihapus di device lain).');
+      users[key]=Object.assign({}, users[key], {active: !users[key].active});
+      return saveUsers(users).then(function(){ S.users=users; render(); });
+    }).catch(alertSaveError);
   },
   toggleResetPw: function(el){ var key=el.getAttribute('data-key'); setState({resetKey: S.resetKey===key?null:key}); },
   submitResetPw: function(el){
@@ -1688,9 +1710,12 @@ var Actions = {
     var pw=input?input.value:'';
     if(pw.length<4) return;
     hashPassword(key, pw).then(function(hash){
-      var users=Object.assign({}, S.users);
-      users[key]=Object.assign({}, users[key], {passwordHash:hash});
-      return saveUsers(users).then(function(){ S.users=users; setState({resetKey:null}); });
+      return loadUsers().then(function(freshUsers){
+        var users=Object.assign({}, freshUsers);
+        if(!users[key]) throw new Error('Akun tidak ditemukan (mungkin sudah dihapus di device lain).');
+        users[key]=Object.assign({}, users[key], {passwordHash:hash});
+        return saveUsers(users).then(function(){ S.users=users; setState({resetKey:null}); });
+      });
     }).catch(alertSaveError);
   },
 
