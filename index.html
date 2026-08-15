@@ -128,12 +128,16 @@ function clearAllVisits(){
   })).catch(function(e){ console.error('gagal hapus visits', e); throw e; });
 }
 function loadStores(){
+  // Coba ulang 1x, tapi kalau tetap gagal, REJECT (jangan resolve ke {}) -- attemptCheckin()
+  // memakai hasil ini untuk membedakan "toko sudah terdaftar" vs "toko baru", dan kalau dianggap
+  // {} gara-gara sinyal lemah, toko yang sebenarnya sudah ada akan disimpan ulang sebagai "baru"
+  // lewat saveStores() yang MENIMPA SELURUH registry toko cabang ini dengan cuma 1 toko itu saja.
   return withTimeout(apiGet(STORES_KEY)).then(function(v){ return v || {}; }).catch(function(e){
     return new Promise(function(resolve){ setTimeout(resolve, 1500); }).then(function(){
       return withTimeout(apiGet(STORES_KEY)).then(function(v){ return v || {}; });
     }).catch(function(e2){
       reportClientError('loadStores', e2);
-      return {};
+      throw e2;
     });
   });
 }
@@ -1599,7 +1603,7 @@ var Actions = {
   reloadStores: function(){
     Promise.all([loadStores(), loadDismissedDupes()]).then(function(res){
       S.storesCache=res[0]; S.dismissedDupes=res[1]; render();
-    });
+    }).catch(function(e){ showToast('Gagal memuat data toko: '+(e&&e.message?e.message:'terjadi kesalahan'), true); });
   },
   dismissDuplicatePair: function(el){
     var keyA=el.getAttribute('data-keya'), keyB=el.getAttribute('data-keyb');
@@ -1942,7 +1946,7 @@ function enterApp(session){
   saveSessionLocal(session);
   setState({session:session, busy:false, errorMsg:'', screen: session.role==='sales' ? 'sales' : 'dashboard'});
   refreshVisitsSilent().then(function(){ render(); });
-  if(session.role!=='sales'){ loadStores().then(function(stores){ S.storesCache=stores; render(); }); }
+  if(session.role!=='sales'){ loadStores().then(function(stores){ S.storesCache=stores; render(); }).catch(function(e){ console.warn('gagal muat data toko awal (tidak fatal, coba lagi via tab Kelola Toko)', e); }); }
   var poll = setInterval(function(){
     if(!S.session){ clearInterval(poll); return; }
     refreshVisitsSilent().then(function(){
