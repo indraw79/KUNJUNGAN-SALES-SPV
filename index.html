@@ -1782,20 +1782,30 @@ function finalizeCheckin(pos, storeName, meta){
   // Re-cek ke server (bukan S.visits lokal yang mungkin sudah basi) tepat sebelum menyimpan --
   // mencegah kunjungan aktif dobel kalau sales sempat menekan Check-in dua kali (mis. GPS lambat
   // ~30 detik lalu dicoba ulang) sebelum layar sempat menampilkan kunjungan aktif yang pertama.
-  loadVisits().then(function(freshVisits){
-    var already = freshVisits.some(function(v){ return v.salesName===S.session.name && v.status==='active'; });
-    if(already){
-      S.visits = freshVisits;
-      setState({checkinStage:'idle', outOfRadius:null, busy:false});
-      showToast('Anda sudah punya kunjungan aktif. Selesaikan dulu sebelum check-in baru.', true);
-      return;
-    }
-    saveNewCheckin();
-  }).catch(function(){
-    // Gagal cek status terbaru (mis. jaringan bermasalah) -- jangan blokir check-in sama sekali,
-    // lanjutkan seperti semula supaya sales tidak macet total gara-gara satu pengecekan gagal.
-    saveNewCheckin();
-  });
+  // Saat sinyal lemah, pengecekan ini sendiri bisa gagal -- coba ulang dulu (attemptsLeft) sebelum
+  // menyerah, supaya tidak asal lanjut simpan check-in baru tanpa tahu status sebenarnya (itu yang
+  // dulu menyebabkan check-in tercatat dobel/tripel saat sinyal lemah lalu membaik).
+  function checkActiveThenSave(attemptsLeft){
+    loadVisits().then(function(freshVisits){
+      var already = freshVisits.some(function(v){ return v.salesName===S.session.name && v.status==='active'; });
+      if(already){
+        S.visits = freshVisits;
+        setState({checkinStage:'idle', outOfRadius:null, busy:false});
+        showToast('Anda sudah punya kunjungan aktif. Selesaikan dulu sebelum check-in baru.', true);
+        return;
+      }
+      saveNewCheckin();
+    }).catch(function(){
+      if(attemptsLeft > 0){
+        setTimeout(function(){ checkActiveThenSave(attemptsLeft-1); }, 1500);
+        return;
+      }
+      // Tetap gagal cek status setelah beberapa kali coba -- sinyal benar-benar tidak stabil,
+      // tahan check-in (jangan simpan diam-diam) dan beri tahu sales apa adanya.
+      setState({busy:false, gpsError:'Sinyal tidak stabil, tidak bisa memastikan status kunjungan Anda. Coba check-in lagi setelah sinyal lebih baik.'});
+    });
+  }
+  checkActiveThenSave(2);
 }
 
 function finishCheckout(active, pos, orders, payment, notes, mismatchReason){
