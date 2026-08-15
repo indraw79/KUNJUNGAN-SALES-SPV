@@ -143,7 +143,10 @@ function loadStores(){
 }
 function saveStores(s){ return withTimeout(apiSet(STORES_KEY, s)).catch(function(e){ console.error('gagal simpan stores', e); throw e; }); }
 function loadDismissedDupes(){
-  return withTimeout(apiGet(DISMISSED_DUPES_KEY)).then(function(v){ return v || {}; }).catch(function(){ return {}; });
+  // Sama seperti loadStores() -- jangan fail-open ke {}, atau dismissDuplicatePair() bisa
+  // menimpa sft-dismissed-dupes-v1 dan menghapus pasangan yang sudah pernah ditandai "toko
+  // berbeda" (dampaknya ringan, cuma audit UI, tapi pola bugnya sama, sekalian dibenahi).
+  return withTimeout(apiGet(DISMISSED_DUPES_KEY)).then(function(v){ return v || {}; });
 }
 function saveDismissedDupes(d){ return withTimeout(apiSet(DISMISSED_DUPES_KEY, d)).catch(function(e){ console.error('gagal simpan dismissed dupes', e); throw e; }); }
 function dupePairKey(keyA, keyB){ return [keyA, keyB].sort().join('|'); }
