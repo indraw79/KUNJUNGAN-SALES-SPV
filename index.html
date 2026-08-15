@@ -1624,9 +1624,13 @@ var Actions = {
   dismissDuplicatePair: function(el){
     var keyA=el.getAttribute('data-keya'), keyB=el.getAttribute('data-keyb');
     var pairKey=dupePairKey(keyA, keyB);
-    var dismissed=Object.assign({}, S.dismissedDupes);
-    dismissed[pairKey]={dismissedBy:S.session.name, dismissedAt:new Date().toISOString()};
-    saveDismissedDupes(dismissed).then(function(){ S.dismissedDupes=dismissed; showToast('✓ Ditandai sebagai toko berbeda.', false); render(); }).catch(alertSaveError);
+    // Muat ulang dari server dulu -- S.dismissedDupes/storesCache bisa basi (dan saveX menimpa
+    // penuh), sama seperti pola race condition yang sudah dibenahi di Kelola User.
+    loadDismissedDupes().then(function(freshDismissed){
+      var dismissed=Object.assign({}, freshDismissed);
+      dismissed[pairKey]={dismissedBy:S.session.name, dismissedAt:new Date().toISOString()};
+      return saveDismissedDupes(dismissed).then(function(){ S.dismissedDupes=dismissed; showToast('✓ Ditandai sebagai toko berbeda.', false); render(); });
+    }).catch(alertSaveError);
   },
   toggleMergePicker: function(el){
     var pairKey=el.getAttribute('data-pairkey');
@@ -1651,24 +1655,34 @@ var Actions = {
     var key=el.getAttribute('data-key');
     var kec=document.getElementById('kec_'+key);
     var kota=document.getElementById('kota_'+key);
-    var stores=Object.assign({}, S.storesCache);
-    stores[key]=Object.assign({}, stores[key], {kecamatan:(kec?kec.value.trim():''), kota:(kota?kota.value.trim():'')});
-    saveStores(stores).then(function(){ S.storesCache=stores; showToast('✓ Kecamatan/Kota tersimpan.', false); render(); }).catch(alertSaveError);
+    var kecVal=(kec?kec.value.trim():''), kotaVal=(kota?kota.value.trim():'');
+    // Ambil nilai input dulu (di atas) sebelum loadStores() async -- baru pakai hasil load
+    // yang segar sebagai dasar merge+simpan, bukan S.storesCache yang bisa basi (race condition
+    // dengan toko baru yang masuk lewat check-in sales lain di saat bersamaan).
+    loadStores().then(function(freshStores){
+      var stores=Object.assign({}, freshStores);
+      stores[key]=Object.assign({}, stores[key], {kecamatan:kecVal, kota:kotaVal});
+      return saveStores(stores).then(function(){ S.storesCache=stores; showToast('✓ Kecamatan/Kota tersimpan.', false); render(); });
+    }).catch(alertSaveError);
   },
 
   saveRadius: function(el){
     var key=el.getAttribute('data-key');
     var input=document.getElementById('radius_'+key);
     var newRadius=Number(input.value)||DEFAULT_RADIUS;
-    var stores=Object.assign({}, S.storesCache);
-    stores[key]=Object.assign({}, stores[key], {radius:newRadius});
-    saveStores(stores).then(function(){ S.storesCache=stores; render(); }).catch(alertSaveError);
+    loadStores().then(function(freshStores){
+      var stores=Object.assign({}, freshStores);
+      stores[key]=Object.assign({}, stores[key], {radius:newRadius});
+      return saveStores(stores).then(function(){ S.storesCache=stores; render(); });
+    }).catch(alertSaveError);
   },
   resetStoreLocation: function(el){
     var key=el.getAttribute('data-key');
-    var stores=Object.assign({}, S.storesCache);
-    delete stores[key];
-    saveStores(stores).then(function(){ S.storesCache=stores; render(); }).catch(alertSaveError);
+    loadStores().then(function(freshStores){
+      var stores=Object.assign({}, freshStores);
+      delete stores[key];
+      return saveStores(stores).then(function(){ S.storesCache=stores; render(); });
+    }).catch(alertSaveError);
   },
 
   downloadUserTemplate: function(){ downloadUserTemplateCSV(); },
