@@ -189,6 +189,37 @@ function computeSuspectedDuplicates(stores, dismissed){
   pairs.sort(function(x,y){ return x.dist - y.dist; });
   return pairs;
 }
+function computeSuspectedDuplicateClusters(stores, dismissed){
+  // Kelompokkan pasangan-pasangan berdekatan (union-find) supaya 1 toko yang berdekatan dengan
+  // beberapa nama lain (kasus berulang: toko yang sama didaftarkan 3x+) tampil sebagai SATU kartu
+  // peringatan, bukan satu kartu terpisah per pasangan -- itu yang bikin terasa "muncul lagi di
+  // bawah" padahal sebenarnya kasus yang sama.
+  var pairs = computeSuspectedDuplicates(stores, dismissed);
+  var parent = {};
+  function find(k){
+    if(parent[k]==null) parent[k]=k;
+    while(parent[k]!==k){ parent[k]=parent[parent[k]]; k=parent[k]; }
+    return k;
+  }
+  function union(a,b){ var ra=find(a), rb=find(b); if(ra!==rb) parent[ra]=rb; }
+  pairs.forEach(function(p){ union(p.keyA, p.keyB); });
+  var groups = {};
+  pairs.forEach(function(p){
+    var root = find(p.keyA);
+    var g = groups[root] = groups[root] || {keySet:{}, pairs:[]};
+    g.keySet[p.keyA]=true; g.keySet[p.keyB]=true;
+    g.pairs.push(p);
+  });
+  var clusters = Object.keys(groups).map(function(root){
+    var g = groups[root];
+    var keys = Object.keys(g.keySet);
+    var minDist = Math.min.apply(null, g.pairs.map(function(p){ return p.dist; }));
+    var identical = g.pairs.some(function(p){ return p.identical; });
+    return {keys:keys, pairs:g.pairs, minDist:minDist, identical:identical};
+  });
+  clusters.sort(function(a,b){ return a.minDist - b.minDist; });
+  return clusters;
+}
 function computeSuspiciousReps(stores){
   var byCreator = {};
   Object.keys(stores).forEach(function(k){
@@ -1138,34 +1169,47 @@ function storesManagementHTML(){
     });
     html += '</div>';
   }
-  var dupes = computeSuspectedDuplicates(stores, S.dismissedDupes);
-  if(dupes.length>0){
+  var dupeClusters = computeSuspectedDuplicateClusters(stores, S.dismissedDupes);
+  if(dupeClusters.length>0){
     html += '<div class="card" style="margin-bottom:16px;border:1px solid #C1502E;">' +
-      '<h4 class="xs" style="text-transform:uppercase;margin:0 0 8px;color:#C1502E;">⚠ Kemungkinan Toko Duplikat ('+dupes.length+')</h4>' +
-      '<p class="xs muted" style="margin:0 0 10px;">Dua nama toko dengan titik lokasi berdekatan (≤'+DUPLICATE_DISTANCE_THRESHOLD+'m) — cek ke lapangan, lalu tandai "Toko Berbeda" kalau sudah dikonfirmasi bukan toko yang sama.</p>';
-    dupes.forEach(function(p){
-      var sa = visitStatsForStoreName(p.a.name), sb = visitStatsForStoreName(p.b.name);
-      var isBusy = S.mergeBusyKey===p.pairKey, showPicker = S.mergePickerKey===p.pairKey;
+      '<h4 class="xs" style="text-transform:uppercase;margin:0 0 8px;color:#C1502E;">⚠ Kemungkinan Toko Duplikat ('+dupeClusters.length+' kasus)</h4>' +
+      '<p class="xs muted" style="margin:0 0 10px;">Nama-nama toko dengan titik lokasi berdekatan (≤'+DUPLICATE_DISTANCE_THRESHOLD+'m) — cek ke lapangan, lalu tandai "Toko Berbeda" kalau sudah dikonfirmasi bukan toko yang sama. Toko yang berdekatan satu sama lain dikelompokkan jadi satu kasus, bukan diulang per pasangan.</p>';
+    dupeClusters.forEach(function(c){
+      var isBusy = c.pairs.some(function(p){ return S.mergeBusyKey===p.pairKey; });
+      var showPickerPair = c.pairs.filter(function(p){ return S.mergePickerKey===p.pairKey; })[0];
+      var allPairKeys = c.pairs.map(function(p){ return p.pairKey; });
+      var statsHtml = c.keys.map(function(k){
+        var st = stores[k];
+        var s = visitStatsForStoreName(st.name);
+        return '<div class="xs" style="margin-bottom:4px;">• <b>'+esc(st.name)+'</b> — '+esc(st.createdBy||'-')+', '+s.count+' kunjungan, '+rp(s.order)+' order, '+rp(s.payment)+' dibayar</div>';
+      }).join('');
+      var distHtml = c.pairs.map(function(p){
+        return '<span class="xs muted" style="margin-right:10px;display:inline-block;">'+esc(p.a.name)+' ↔ '+esc(p.b.name)+': '+(p.identical?'<b style="color:#C1502E;">'+p.dist+'m (identik)</b>':p.dist+'m')+'</span>';
+      }).join('');
       var actionsHtml;
       if(isBusy){
         actionsHtml = '<span class="xs muted">Menggabungkan...</span>';
-      } else if(showPicker){
-        actionsHtml = '<div class="xs muted" style="margin-bottom:6px;">Pilih nama yang dipakai (kunjungan dari nama lain akan dipindahkan ke sini):</div>' +
+      } else if(showPickerPair){
+        var p = showPickerPair;
+        actionsHtml = '<div class="xs muted" style="margin-bottom:6px;">Pilih nama yang dipakai untuk "'+esc(p.a.name)+'" / "'+esc(p.b.name)+'" (kunjungan dari nama lain akan dipindahkan ke sini):</div>' +
           '<div class="row gap6" style="flex-wrap:wrap;">' +
           '<button class="btn btn-dark btn-sm" data-action="mergeStorePair" data-keya="'+esc(p.keyA)+'" data-keyb="'+esc(p.keyB)+'" data-keep="a">'+esc(p.a.name)+'</button>' +
           '<button class="btn btn-dark btn-sm" data-action="mergeStorePair" data-keya="'+esc(p.keyA)+'" data-keyb="'+esc(p.keyB)+'" data-keep="b">'+esc(p.b.name)+'</button>' +
           '<button class="btn btn-outline btn-sm" data-action="toggleMergePicker" data-pairkey="'+esc(p.pairKey)+'">Batal</button>' +
           '</div>';
       } else {
-        actionsHtml = '<div class="row gap6" style="flex-wrap:wrap;">' +
-          '<button class="btn btn-outline btn-sm" data-action="dismissDuplicatePair" data-keya="'+esc(p.keyA)+'" data-keyb="'+esc(p.keyB)+'">Toko Berbeda (hilangkan peringatan)</button>' +
-          '<button class="btn btn-outline btn-sm" data-action="toggleMergePicker" data-pairkey="'+esc(p.pairKey)+'">Toko Sama (gabungkan)</button>' +
-          '</div>';
+        actionsHtml = '<div class="xs muted" style="margin:6px 0 4px;">Gabungkan pasangan tertentu:</div>' +
+          '<div class="row gap6" style="flex-wrap:wrap;margin-bottom:8px;">' +
+          c.pairs.map(function(p){
+            return '<button class="btn btn-outline btn-sm" data-action="toggleMergePicker" data-pairkey="'+esc(p.pairKey)+'">'+esc(p.a.name)+' + '+esc(p.b.name)+'</button>';
+          }).join('') +
+          '</div>' +
+          '<button class="btn btn-outline btn-sm" data-action="dismissDuplicateCluster" data-pairkeys="'+esc(JSON.stringify(allPairKeys))+'">Toko Berbeda (hilangkan semua peringatan kasus ini)</button>';
       }
-      html += '<div class="card2" style="margin-bottom:8px;padding:10px;'+(p.identical?'border:1px solid #C1502E;':'')+'">' +
-        '<div class="xs" style="margin-bottom:6px;">'+(p.identical?'<b style="color:#C1502E;">🚨 TITIK IDENTIK</b> ('+p.dist+'m)':'<b>'+p.dist+'m</b>')+' antara dua toko:</div>' +
-        '<div class="xs" style="margin-bottom:4px;">• <b>'+esc(p.a.name)+'</b> — '+esc(p.a.createdBy||'-')+', '+sa.count+' kunjungan, '+rp(sa.order)+' order, '+rp(sa.payment)+' dibayar</div>' +
-        '<div class="xs" style="margin-bottom:8px;">• <b>'+esc(p.b.name)+'</b> — '+esc(p.b.createdBy||'-')+', '+sb.count+' kunjungan, '+rp(sb.order)+' order, '+rp(sb.payment)+' dibayar</div>' +
+      html += '<div class="card2" style="margin-bottom:8px;padding:10px;'+(c.identical?'border:1px solid #C1502E;':'')+'">' +
+        '<div class="xs" style="margin-bottom:6px;">'+(c.identical?'<b style="color:#C1502E;">🚨 ADA TITIK IDENTIK</b>':'<b>Jarak terdekat '+c.minDist+'m</b>')+' — '+c.keys.length+' nama toko berdekatan:</div>' +
+        statsHtml +
+        '<div style="margin:6px 0;">'+distHtml+'</div>' +
         actionsHtml +
       '</div>';
     });
@@ -1630,6 +1674,19 @@ var Actions = {
       var dismissed=Object.assign({}, freshDismissed);
       dismissed[pairKey]={dismissedBy:S.session.name, dismissedAt:new Date().toISOString()};
       return saveDismissedDupes(dismissed).then(function(){ S.dismissedDupes=dismissed; showToast('✓ Ditandai sebagai toko berbeda.', false); render(); });
+    }).catch(alertSaveError);
+  },
+  dismissDuplicateCluster: function(el){
+    var pairKeys; try{ pairKeys = JSON.parse(el.getAttribute('data-pairkeys')||'[]'); }catch(e){ pairKeys = []; }
+    if(!pairKeys.length) return;
+    // Sama seperti dismissDuplicatePair, tapi menandai SEMUA pasangan dalam satu kasus/kelompok
+    // sekaligus -- supaya toko yang berdekatan dengan beberapa nama lain tidak tampil sebagai
+    // peringatan berulang setelah salah satu pasangannya ditandai "Toko Berbeda".
+    loadDismissedDupes().then(function(freshDismissed){
+      var dismissed=Object.assign({}, freshDismissed);
+      var now=new Date().toISOString();
+      pairKeys.forEach(function(pk){ dismissed[pk]={dismissedBy:S.session.name, dismissedAt:now}; });
+      return saveDismissedDupes(dismissed).then(function(){ S.dismissedDupes=dismissed; showToast('✓ Ditandai sebagai toko berbeda (semua di kasus ini).', false); render(); });
     }).catch(alertSaveError);
   },
   toggleMergePicker: function(el){
