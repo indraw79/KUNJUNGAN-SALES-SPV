@@ -525,19 +525,30 @@ function uploadPaymentPhoto(visitId, dataUrl){
     return res.json();
   }), 35000).catch(function(e){ console.error('gagal upload foto', e); throw e; });
 }
-function evaluatePhotoMismatch(photo, checkoutPos, checkoutTime){
-  var TEN_MIN = 10*60*1000;
-  var timeDiff = Math.abs(new Date(photo.photoTime) - checkoutTime);
-  var timeMismatch = timeDiff > TEN_MIN;
+function evaluatePhotoMismatch(photo, active, checkoutTime){
+  // Waktu: foto sah selama diambil dalam rentang kunjungan (dari sebelum check-in sampai
+  // sesudah check-out) + jeda 20 menit di kedua sisi. Aturan lama "foto harus dalam 10 menit
+  // dari waktu check-out" terlalu ketat -- sales wajar foto saat terima pembayaran lalu
+  // check-out lama setelahnya / sambil sudah berjalan meninggalkan toko.
+  var GRACE = 20*60*1000;
+  var checkinMs = new Date(active.checkinTime).getTime();
+  var checkoutMs = checkoutTime.getTime();
+  var photoMs = new Date(photo.photoTime).getTime();
+  var minutesOutside = 0;
+  if(photoMs < checkinMs - GRACE) minutesOutside = Math.round((checkinMs - photoMs)/60000);
+  else if(photoMs > checkoutMs + GRACE) minutesOutside = Math.round((photoMs - checkoutMs)/60000);
+  var timeMismatch = minutesOutside > 0;
+  // Jarak (tetap ketat 50 m): foto dibandingkan dengan lokasi TOKO (titik check-in), bukan
+  // lokasi check-out -- sales sering sudah berpindah saat menekan check-out.
   var distanceMismatch, distance = null;
-  if(photo.lat != null && photo.lng != null){
-    distance = haversineMeters(photo.lat, photo.lng, checkoutPos.lat, checkoutPos.lng);
+  if(photo.lat != null && photo.lng != null && active.checkinLat != null && active.checkinLng != null){
+    distance = haversineMeters(photo.lat, photo.lng, active.checkinLat, active.checkinLng);
     distanceMismatch = distance > DEFAULT_RADIUS;
   } else {
     distanceMismatch = true;
   }
   if(!timeMismatch && !distanceMismatch) return null;
-  return {timeMismatch:timeMismatch, distanceMismatch:distanceMismatch, timeDiffMinutes:Math.round(timeDiff/60000), distance:distance};
+  return {timeMismatch:timeMismatch, distanceMismatch:distanceMismatch, minutesOutside:minutesOutside, distance:distance};
 }
 
 function sha256Hex(str){
@@ -992,8 +1003,8 @@ function paymentPhotoSectionHTML(){
 function photoMismatchModal(){
   var info = S.photoMismatchInfo || {};
   var reasons = [];
-  if(info.timeMismatch) reasons.push('waktu foto berbeda '+info.timeDiffMinutes+' menit dari waktu check-out (toleransi 10 menit)');
-  if(info.distanceMismatch) reasons.push(info.distance!=null ? ('lokasi foto berjarak '+distLabel(info.distance)+' dari lokasi check-out') : 'lokasi foto tidak dapat dideteksi');
+  if(info.timeMismatch) reasons.push(info.minutesOutside ? ('waktu foto '+info.minutesOutside+' menit di luar rentang waktu kunjungan') : 'waktu foto di luar rentang waktu kunjungan');
+  if(info.distanceMismatch) reasons.push(info.distance!=null ? ('lokasi foto berjarak '+distLabel(info.distance)+' dari lokasi toko') : 'lokasi foto tidak dapat dideteksi');
   return '<div class="modal-overlay" data-action="noop">' +
     '<div class="modal-sheet">' +
       '<div class="sticky-top"><div class="xs mono muted" style="text-transform:uppercase;">⚠ Foto tidak sesuai</div><h2 class="display" style="font-size:17px;color:var(--primary);margin:2px 0 0;">Periksa bukti pembayaran</h2></div>' +
@@ -1976,11 +1987,19 @@ function finalizeCheckin(pos, storeName, meta){
 
 function finishCheckout(active, pos, orders, payment, notes, mismatchReason){
   try {
+    // Jaring pengaman: pembayaran > 0 tidak boleh tersimpan tanpa foto bukti yang siap, lewat
+    // jalur mana pun -- termasuk setelah layar "foto tidak sesuai". Sebelumnya foto bisa hilang
+    // diam-diam di jalur konfirmasi mismatch dan checkout tetap tersimpan tanpa bukti.
+    if(payment > 0 && (!S.paymentPhoto || S.paymentPhoto.status !== 'ready')){
+      setState({busy:false, pendingCheckout:null, photoMismatchInfo:null});
+      showToast('Foto bukti pembayaran belum siap / hilang. Lampirkan foto lagi sebelum check-out.', true);
+      return;
+    }
     var checkoutTime = new Date();
     var durationMinutes = (checkoutTime - new Date(active.checkinTime))/60000;
     var hasPhoto = payment > 0 && S.paymentPhoto && S.paymentPhoto.status==='ready';
     if(hasPhoto && mismatchReason == null){
-      var mismatch = evaluatePhotoMismatch(S.paymentPhoto, pos, checkoutTime);
+      var mismatch = evaluatePhotoMismatch(S.paymentPhoto, active, checkoutTime);
       if(mismatch){
         setState({busy:false, pendingCheckout:{active:active, pos:pos, orders:orders, payment:payment, notes:notes}, photoMismatchInfo:mismatch});
         return;
@@ -1991,7 +2010,8 @@ function finishCheckout(active, pos, orders, payment, notes, mismatchReason){
       return uploadStep.then(function(uploadResult){
         var updatedVisit = Object.assign({}, active, {checkoutTime:checkoutTime.toISOString(), checkoutLat:pos.lat||null, checkoutLng:pos.lng||null, status:'done', durationMinutes:durationMinutes, orders:orders, payment:payment, notes:notes});
         if(hasPhoto){
-          updatedVisit.paymentPhotoUrl = uploadResult && uploadResult.url ? uploadResult.url : null;
+          if(!uploadResult || !uploadResult.url) throw new Error('Upload foto gagal (server tidak mengembalikan URL)');
+          updatedVisit.paymentPhotoUrl = uploadResult.url;
           updatedVisit.paymentPhotoTime = S.paymentPhoto.photoTime;
           updatedVisit.paymentPhotoLat = S.paymentPhoto.lat;
           updatedVisit.paymentPhotoLng = S.paymentPhoto.lng;
