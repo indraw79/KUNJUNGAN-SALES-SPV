@@ -711,7 +711,7 @@ var S = {
   dashTab:'visits', dashFilter:'today', dashStart:'', dashEnd:'', expandedSales:null, expandedVisit:null,
   editingVisit:null, editOrderItems:[],
   manualEntryOpen:false, manualOrderItems:[],
-  storeRadiusDrafts:{}, dismissedDupes:{}, carriedDupes:{}, storeNameDraft:'', nearbyStores:[],
+  storeRadiusDrafts:{}, dismissedDupes:{}, carriedDupes:{}, storeNameDraft:'', nearbyStores:[], storeSuggestionLoadFailed:false,
   mergePickerKey:null, mergeBusyKey:null,
   users:{}, resetKey:null, confirmReset:null,
   setupDraft:{},
@@ -936,6 +936,7 @@ function screenSales(){
     headerInner = '<label class="lbl" style="color:rgba(255,255,255,.7);">Nama toko</label>' +
       '<input class="input input-dark" id="storeNameInput" autocomplete="off" placeholder="cth. Toko Sumber Jaya" value="'+esc(S.storeNameDraft||'')+'">' +
       '<div id="storeSuggestionList"></div>' +
+      (S.storeSuggestionLoadFailed ? '<div class="xs" style="color:#F3C6A8;margin-top:8px;line-height:1.5;background:rgba(193,80,46,.15);border:1px solid rgba(193,80,46,.35);border-radius:10px;padding:10px 12px;">⚠ Gagal memuat daftar toko (sinyal lemah?). Saran toko mungkin belum lengkap — <button data-action="retryStoreSuggestions" style="background:none;border:none;color:#fff;text-decoration:underline;padding:0;font:inherit;">coba lagi</button> sebelum mengetik nama toko baru.</div>' : '') +
       '<p class="xs" style="color:rgba(255,255,255,.4);margin:6px 0 0;">Toko baru akan mendaftarkan lokasi GPS saat ini sebagai titik acuan.</p>' +
       (S.gpsError ? '<div class="xs" style="color:#F3C6A8;margin-top:8px;line-height:1.5;background:rgba(193,80,46,.15);border:1px solid rgba(193,80,46,.35);border-radius:10px;padding:10px 12px;">⚠ '+esc(S.gpsError)+'</div>' : '') +
       '<div class="row gap8" style="margin-top:12px;">' +
@@ -1601,32 +1602,11 @@ var Actions = {
   },
 
   startCheckin: function(){
-    var names = {};
-    myVisits().forEach(function(v){
-      var n = String(v.storeName||'').trim();
-      if(n) names[n] = true;
-    });
-    setState({checkinStage:'entering', gpsError:'', storeNames: Object.keys(names).sort(), storeNameDraft:'', nearbyStores:[]});
-    loadStores().then(function(stores){
-      Object.keys(stores).forEach(function(k){
-        var n = String(stores[k].name||'').trim();
-        if(n) names[n] = true;
-      });
-      setState({storeNames: Object.keys(names).sort()});
-      if(S.checkinStage!=='entering') return;
-      getPosition().then(function(pos){
-        if(pos.error || S.checkinStage!=='entering') return;
-        var nearby = Object.keys(stores).map(function(k){
-          var s = stores[k];
-          if(s.lat==null || s.lng==null) return null;
-          return {name:s.name, dist:haversineMeters(pos.lat, pos.lng, s.lat, s.lng)};
-        }).filter(function(x){ return x && x.dist<=NEARBY_SUGGESTION_RADIUS; })
-          .sort(function(a,b){ return a.dist-b.dist; });
-        setState({nearbyStores: nearby});
-      });
-    });
+    setState({checkinStage:'entering', gpsError:'', storeNameDraft:'', nearbyStores:[], storeSuggestionLoadFailed:false});
+    loadCheckinSuggestions();
   },
-  cancelCheckin: function(){ setState({checkinStage:'idle', outOfRadius:null, gpsError:'', storeNameDraft:'', nearbyStores:[]}); },
+  retryStoreSuggestions: function(){ loadCheckinSuggestions(); },
+  cancelCheckin: function(){ setState({checkinStage:'idle', outOfRadius:null, gpsError:'', storeNameDraft:'', nearbyStores:[], storeSuggestionLoadFailed:false}); },
 
   attemptCheckin: function(){
     var storeInput = document.getElementById('storeNameInput');
@@ -2086,6 +2066,76 @@ var Actions = {
   noop: function(){}
 };
 
+// Ambil daftar nama toko (dari kunjungan sendiri + registry seluruh cabang) dan toko terdekat
+// (GPS) untuk saran saat check-in. loadStores() dan getPosition() sengaja dijalankan BERSAMAAN
+// (bukan berurutan) supaya saran "toko terdekat" tidak perlu menunggu keduanya selesai satu-satu
+// -- di lokasi dengan GPS lambat, ini bisa memangkas waktu tunggu sampai puluhan detik. Kalau
+// loadStores() gagal (mis. sinyal lemah di dalam toko), sebelumnya gagal ini DIAM SAJA -- kotak
+// saran kelihatan kosong tanpa penjelasan, sales pun mengetik nama baru padahal tokonya sudah ada
+// di data. Sekarang kegagalan ditangkap dan ditampilkan (storeSuggestionLoadFailed) dengan tombol
+// coba lagi (Actions.retryStoreSuggestions), bisa dipanggil ulang tanpa mereset nama yang sudah
+// diketik sales.
+function loadCheckinSuggestions(){
+  var names = {};
+  myVisits().forEach(function(v){
+    var n = String(v.storeName||'').trim();
+    if(n) names[n] = true;
+  });
+  setState({storeNames: Object.keys(names).sort(), storeSuggestionLoadFailed:false});
+  var storesPromise = loadStores();
+  var posPromise = getPosition();
+  return storesPromise.then(function(stores){
+    Object.keys(stores).forEach(function(k){
+      var n = String(stores[k].name||'').trim();
+      if(n) names[n] = true;
+    });
+    if(S.checkinStage==='entering') setState({storeNames: Object.keys(names).sort()});
+    return posPromise.then(function(pos){
+      if(pos.error || S.checkinStage!=='entering') return;
+      var nearby = Object.keys(stores).map(function(k){
+        var s = stores[k];
+        if(s.lat==null || s.lng==null) return null;
+        return {name:s.name, dist:haversineMeters(pos.lat, pos.lng, s.lat, s.lng)};
+      }).filter(function(x){ return x && x.dist<=NEARBY_SUGGESTION_RADIUS; })
+        .sort(function(a,b){ return a.dist-b.dist; });
+      if(S.checkinStage==='entering') setState({nearbyStores: nearby});
+    });
+  }).catch(function(e){
+    console.error('gagal memuat data toko untuk saran check-in', e);
+    reportClientError('loadCheckinSuggestions', e);
+    if(S.checkinStage==='entering') setState({storeSuggestionLoadFailed:true});
+  });
+}
+function normalizeStoreName(s){ return String(s||'').toLowerCase().replace(/\s+/g,' ').trim(); }
+// Jarak edit (Levenshtein) sederhana -- dipakai sebagai jaring pengaman toleransi typo saat
+// pencocokan potongan huruf persis (indexOf) tidak menemukan apa-apa, supaya ejaan yang sedikit
+// beda dari nama toko yang sudah terdaftar (kurang/lebih 1-2 huruf, salah ketik) tetap muncul
+// sebagai saran, bukan diam-diam dianggap toko baru.
+function levenshteinDistance(a, b){
+  var m=a.length, n=b.length;
+  if(m===0) return n;
+  if(n===0) return m;
+  var prev=[], curr=[];
+  for(var j=0;j<=n;j++) prev[j]=j;
+  for(var i=1;i<=m;i++){
+    curr[0]=i;
+    for(var j2=1;j2<=n;j2++){
+      var cost = a.charAt(i-1)===b.charAt(j2-1) ? 0 : 1;
+      curr[j2] = Math.min(prev[j2]+1, curr[j2-1]+1, prev[j2-1]+cost);
+    }
+    var tmp=prev; prev=curr; curr=tmp;
+  }
+  return prev[n];
+}
+function fuzzyStoreMatches(qNorm, names){
+  var threshold = qNorm.length<=4 ? 1 : (qNorm.length<=8 ? 2 : 3);
+  return names.map(function(n){
+    var nn = normalizeStoreName(n);
+    if(Math.abs(nn.length-qNorm.length) > threshold) return null;
+    var dist = levenshteinDistance(qNorm, nn);
+    return dist<=threshold ? {name:n, dist:dist} : null;
+  }).filter(Boolean).sort(function(a,b){ return a.dist-b.dist; }).map(function(x){ return x.name; });
+}
 function renderStoreSuggestions(query){
   var list = document.getElementById('storeSuggestionList');
   if(!list) return;
@@ -2100,10 +2150,18 @@ function renderStoreSuggestions(query){
     }
     return;
   }
-  var matches = S.storeNames.filter(function(n){ return n.toLowerCase().indexOf(q) !== -1; }).slice(0,6);
-  list.innerHTML = matches.map(function(n){
+  var qNorm = normalizeStoreName(q);
+  var matches = S.storeNames.filter(function(n){ return normalizeStoreName(n).indexOf(qNorm) !== -1; }).slice(0,6);
+  var fuzzy = matches.length===0 && qNorm.length>=3 ? fuzzyStoreMatches(qNorm, S.storeNames).slice(0,4) : [];
+  var html = matches.map(function(n){
     return '<button type="button" class="btn btn-ghost btn-sm" data-action="selectStoreSuggestion" data-name="'+esc(n)+'" style="display:block;width:100%;text-align:left;margin-top:6px;">'+esc(n)+'</button>';
   }).join('');
+  if(fuzzy.length>0){
+    html += '<div class="xs muted" style="margin-top:8px;">Mirip dengan ejaan Anda:</div>' + fuzzy.map(function(n){
+      return '<button type="button" class="btn btn-ghost btn-sm" data-action="selectStoreSuggestion" data-name="'+esc(n)+'" style="display:block;width:100%;text-align:left;margin-top:6px;">≈ '+esc(n)+'</button>';
+    }).join('');
+  }
+  list.innerHTML = html;
 }
 function syncOrderItemsFromDOM(){
   var fields = document.querySelectorAll('[data-order-field]');
