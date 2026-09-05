@@ -23,5 +23,8 @@
         { "key": "Cache-Control", "value": "no-cache, must-revalidate" }
       ]
     }
-  ]
+  ],
+  "functions": {
+    "api/parse-fuel-receipt.js": { "maxDuration": 30 }
+  }
 }

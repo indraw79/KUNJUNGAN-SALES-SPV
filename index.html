@@ -525,6 +525,38 @@ function uploadPaymentPhoto(visitId, dataUrl){
     return res.json();
   }), 35000).catch(function(e){ console.error('gagal upload foto', e); throw e; });
 }
+var JENIS_BBM_OPTIONS = ['Pertalite', 'Pertamax', 'Pertamax Turbo', 'Solar', 'Dexlite', 'Lainnya'];
+function parseFuelReceipt(dataUrl){
+  return withTimeout(fetch('/api/parse-fuel-receipt', {
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({imageBase64:dataUrl})
+  }).then(function(res){
+    if(!res.ok) return res.json().catch(function(){ return {}; }).then(function(err){ throw new Error(err.error||('Gagal membaca struk (status '+res.status+')')); });
+    return res.json();
+  }), 35000).catch(function(e){ console.error('gagal baca struk BBM', e); throw e; });
+}
+function uploadFuelPhoto(claimId, dataUrl){
+  return withTimeout(fetch('/api/upload-photo', {
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({visitId:claimId, imageBase64:dataUrl, folder:'fuel-photos'})
+  }).then(function(res){
+    if(!res.ok) throw new Error('Gagal upload foto struk (status '+res.status+')');
+    return res.json();
+  }), 35000).catch(function(e){ console.error('gagal upload foto struk', e); throw e; });
+}
+function loadFuelClaims(){
+  var bust = Date.now()+'-'+Math.random().toString(36).slice(2,8);
+  return withTimeout(fetch('/api/fuel-claims?_='+bust, {cache:'no-store'}).then(function(res){
+    if(!res.ok) throw new Error('Gagal memuat klaim BBM (status '+res.status+')');
+    return res.json();
+  })).then(function(data){ return data.claims || []; });
+}
+function upsertFuelClaim(claim){
+  return withTimeout(fetch('/api/fuel-claims', {
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({claim:claim})
+  }).then(function(res){
+    if(!res.ok) throw new Error('Gagal menyimpan klaim BBM (status '+res.status+')');
+    return res.json();
+  })).catch(function(e){ console.error('gagal simpan klaim BBM', e); throw e; });
+}
 function evaluatePhotoMismatch(photo, active, checkoutTime){
   // Waktu: foto sah selama diambil dalam rentang kunjungan (dari sebelum check-in sampai
   // sesudah check-out) + jeda 20 menit di kedua sisi. Aturan lama "foto harus dalam 10 menit
@@ -683,10 +715,13 @@ var S = {
   mergePickerKey:null, mergeBusyKey:null,
   users:{}, resetKey:null, confirmReset:null,
   setupDraft:{},
+  fuelClaims:[], fuelClaimsLoaded:false, fuelFormOpen:false, fuelPhoto:null,
+  fuelDraftJenis:'', fuelDraftLiter:'', fuelDraftNominal:'',
   timerHandle:null
 };
 function setState(patch){
   if(S.orderFormOpen) syncOrderFormFromDOM();
+  if(S.fuelFormOpen) syncFuelFormFromDOM();
   if(S.checkinStage==='entering') syncCheckinFormFromDOM();
   Object.assign(S, patch);
   render();
@@ -859,6 +894,18 @@ function screenLocationCheck(){
 
 /* ---------------- SALES screen ---------------- */
 function myVisits(){ return S.visits.filter(function(v){ return v.salesName===S.session.name; }); }
+function myFuelClaims(){ return S.fuelClaims.filter(function(c){ return c.salesName===S.session.name; }).sort(function(a,b){ return new Date(b.createdAt)-new Date(a.createdAt); }); }
+function fuelClaimRowHTML(c){
+  return '<div class="card2" style="margin-bottom:10px;padding:10px;">' +
+    '<div class="row gap8" style="align-items:center;">' +
+      '<a href="'+esc(c.receiptPhotoUrl)+'" target="_blank" rel="noreferrer"><img src="'+esc(c.receiptPhotoUrl)+'" style="width:56px;height:56px;object-fit:cover;border-radius:10px;border:1px solid var(--border);flex-shrink:0;"></a>' +
+      '<div style="flex:1;min-width:0;">' +
+        '<div class="row between"><span style="font-weight:600;font-size:13px;">'+esc(c.jenisBBM)+' · '+Number(c.liter||0).toLocaleString('id-ID')+' L</span><span class="mono" style="font-weight:700;color:var(--primary);font-size:13px;">'+rp(c.nominal)+'</span></div>' +
+        '<div class="xs muted mono">'+fmtDate(c.createdAt)+' '+fmtTime(c.createdAt)+(c.salesName ? (' · '+esc(c.salesName)) : '')+(c.readable===false?(' '+badge('⚠ struk kurang jelas','warn')):'')+'</div>' +
+      '</div>' +
+    '</div>' +
+  '</div>';
+}
 function screenSales(){
   var mv = myVisits();
   var active = mv.filter(function(v){ return v.status==='active'; })[0];
@@ -904,6 +951,7 @@ function screenSales(){
   var html = '<div class="screen">';
   if(S.orderFormOpen && active) html += orderFormModal(active);
   if(S.pendingCheckout || S.pendingPhotoSave) html += photoMismatchModal();
+  if(S.fuelFormOpen) html += fuelClaimFormModal();
   html += '<div class="header">' +
     '<div class="row between" style="margin-bottom:20px;">' +
       '<div class="row gap8"><div style="width:32px;height:32px;border-radius:10px;background:rgba(255,255,255,.1);display:flex;align-items:center;justify-content:center;">👤</div><div><div style="font-weight:600;font-size:14px;">'+esc(S.session.name)+'</div><div class="xs mono" style="color:rgba(255,255,255,.5);">'+roleLabelTxt+' · @'+esc(S.session.username)+'</div></div></div>' +
@@ -912,8 +960,8 @@ function screenSales(){
         '<button data-action="logout" style="background:none;border:none;color:rgba(255,255,255,.6);font-size:18px;padding:8px;">⏻</button>' +
       '</div>' +
     '</div>' +
-    '<div class="tabs dark" style="margin-bottom:20px;"><button class="tab-btn '+(S.salesTab==='home'?'active':'')+'" data-action="setSalesTab" data-val="home">Hari ini</button><button class="tab-btn '+(S.salesTab==='riwayat'?'active':'')+'" data-action="setSalesTab" data-val="riwayat">Riwayat</button></div>' +
-    (S.salesTab==='home' ? headerInner : '<p class="xs" style="color:rgba(255,255,255,.5);">Lihat riwayat kunjungan yang sudah selesai di bawah.</p>') +
+    '<div class="tabs dark" style="margin-bottom:20px;"><button class="tab-btn '+(S.salesTab==='home'?'active':'')+'" data-action="setSalesTab" data-val="home">Hari ini</button><button class="tab-btn '+(S.salesTab==='riwayat'?'active':'')+'" data-action="setSalesTab" data-val="riwayat">Riwayat</button><button class="tab-btn '+(S.salesTab==='bbm'?'active':'')+'" data-action="setSalesTab" data-val="bbm">⛽ BBM</button></div>' +
+    (S.salesTab==='home' ? headerInner : (S.salesTab==='riwayat' ? '<p class="xs" style="color:rgba(255,255,255,.5);">Lihat riwayat kunjungan yang sudah selesai di bawah.</p>' : '<p class="xs" style="color:rgba(255,255,255,.5);">Klaim BBM dari foto struk SPBU.</p>')) +
   '</div>';
 
   if(S.salesTab==='home'){
@@ -934,13 +982,23 @@ function screenSales(){
       html += '</div>';
     }
     html += '</div>';
-  } else {
+  } else if(S.salesTab==='riwayat'){
     html += '<div class="p20" style="padding-top:20px;padding-bottom:40px;">';
     html += filterChipsHTML('riwayat', S.riwayatFilter, S.riwayatStart, S.riwayatEnd);
     html += '<button class="btn btn-dark btn-sm" style="margin:8px 0 16px;" data-action="exportRiwayat" '+(riwayat.length===0?'disabled':'')+'>⬇ Export CSV ('+riwayat.length+' kunjungan)</button>';
     html += dailySummaryHTML(riwayat);
     if(riwayat.length===0){ html += '<p class="small muted">Tidak ada kunjungan pada periode ini.</p>'; }
     else { html += riwayat.map(function(v){ return visitRowHTML(v,false,S.expandedVisit); }).join(''); }
+    html += '</div>';
+  } else {
+    var myFuel = myFuelClaims();
+    var fuelTotal = myFuel.reduce(function(s,c){ return s+(Number(c.nominal)||0); },0);
+    html += '<div class="p20" style="padding-top:20px;padding-bottom:40px;">';
+    html += '<button class="btn btn-accent" style="width:100%;margin-bottom:16px;" data-action="openFuelForm">⛽ Klaim BBM Baru</button>';
+    if(myFuel.length>0){ html += '<p class="xs muted" style="margin:0 0 12px;">Total klaim: <b style="color:var(--primary);">'+rp(fuelTotal)+'</b> ('+myFuel.length+' klaim)</p>'; }
+    if(!S.fuelClaimsLoaded){ html += '<p class="small muted">Memuat klaim BBM...</p>'; }
+    else if(myFuel.length===0){ html += '<p class="small muted">Belum ada klaim BBM.</p>'; }
+    else { html += myFuel.map(fuelClaimRowHTML).join(''); }
     html += '</div>';
   }
   html += '</div>';
@@ -1028,6 +1086,51 @@ function photoMismatchModal(){
       '<div class="sticky-bottom">' +
         '<button class="btn btn-outline" style="flex:1;" data-action="cancelPhotoMismatch">Batal</button>' +
         '<button class="btn btn-danger" style="flex:1;" data-action="confirmPhotoMismatch" '+(S.busy?'disabled':'')+'>'+(isSaveOnly?'Tetap Simpan Foto':'Tetap Simpan & Check-out')+'</button>' +
+      '</div>' +
+    '</div></div>';
+}
+
+function fuelClaimFormModal(){
+  var photo = S.fuelPhoto;
+  var jenis = S.fuelDraftJenis, liter = S.fuelDraftLiter, nominal = S.fuelDraftNominal;
+  var jenisOptions = JENIS_BBM_OPTIONS.map(function(opt){ return '<option value="'+esc(opt)+'" '+(jenis===opt?'selected':'')+'>'+esc(opt)+'</option>'; }).join('');
+  var photoSection;
+  if(!photo){
+    photoSection = '<input type="file" accept="image/*" capture="environment" id="fuelReceiptPhoto" style="margin-bottom:16px;">';
+  } else if(photo.status==='processing'){
+    photoSection = '<div class="xs muted" style="margin-bottom:16px;">⏳ Membaca struk dengan AI...</div>';
+  } else if(photo.status==='error'){
+    photoSection = '<div class="xs" style="color:var(--danger);margin-bottom:8px;">⚠ '+esc(photo.error)+' — isi manual di bawah ini.</div>' +
+      '<div class="row gap8" style="margin-bottom:16px;align-items:center;">' +
+        '<img src="'+photo.dataUrl+'" style="width:56px;height:56px;object-fit:cover;border-radius:10px;border:1px solid var(--border);flex-shrink:0;">' +
+        '<button class="btn btn-outline btn-sm" data-action="removeFuelPhoto">Ganti foto</button>' +
+      '</div>';
+  } else {
+    photoSection = '<div class="row gap8" style="margin-bottom:8px;align-items:center;">' +
+        '<img src="'+photo.dataUrl+'" style="width:56px;height:56px;object-fit:cover;border-radius:10px;border:1px solid var(--border);flex-shrink:0;">' +
+        '<div class="xs muted" style="flex:1;">'+(photo.readable===false ? '⚠ Struk kurang jelas terbaca — periksa angka di bawah.' : '✓ Terbaca otomatis, periksa lagi sebelum simpan.')+'</div>' +
+        '<button class="btn btn-outline btn-sm" data-action="removeFuelPhoto">Ganti foto</button>' +
+      '</div>';
+  }
+  return '<div class="modal-overlay" data-action="noop">' +
+    '<div class="modal-sheet">' +
+      '<div class="sticky-top row between">' +
+        '<div><div class="xs mono muted" style="text-transform:uppercase;">Klaim BBM</div><h2 class="display" style="font-size:17px;color:var(--primary);margin:2px 0 0;">Struk Pembelian BBM</h2></div>' +
+        '<button data-action="closeFuelForm" style="background:none;border:none;font-size:18px;color:var(--muted);">✕</button>' +
+      '</div>' +
+      '<div class="p20" style="padding:16px 20px;">' +
+        '<label class="lbl">📷 Foto struk</label>' +
+        photoSection +
+        '<label class="lbl">Jenis BBM</label>' +
+        '<select class="input" id="fuelJenis" style="margin-bottom:16px;">'+jenisOptions+'</select>' +
+        '<label class="lbl">Jumlah liter</label>' +
+        '<input type="number" min="0" step="0.01" class="input mono" id="fuelLiter" placeholder="0" value="'+esc(liter)+'" style="margin-bottom:16px;">' +
+        '<label class="lbl">Nominal dibayar</label>' +
+        '<input type="number" min="0" class="input mono" id="fuelNominal" placeholder="0" value="'+esc(nominal)+'" style="margin-bottom:16px;">' +
+      '</div>' +
+      '<div class="sticky-bottom">' +
+        '<button class="btn btn-outline" style="flex:1;" data-action="closeFuelForm">Batal</button>' +
+        '<button class="btn btn-dark" style="flex:1;" data-action="submitFuelClaim" '+((S.busy||(photo&&photo.status==='processing'))?'disabled':'')+'>Simpan Klaim</button>' +
       '</div>' +
     '</div></div>';
 }
@@ -1126,7 +1229,7 @@ function screenDashboard(){
   var totalPay = scoped.reduce(function(s,v){ return s+(v.payment||0); },0);
   var flagged = scoped.filter(function(v){ return v.checkinOutOfRadius; }).length;
 
-  var tabs = role==='owner' ? [['visits','Kunjungan'],['stores','Kelola Toko'],['users','Kelola User']] : [['visits','Kunjungan'],['stores','Kelola Toko']];
+  var tabs = role==='owner' ? [['visits','Kunjungan'],['stores','Kelola Toko'],['bbm','Klaim BBM'],['users','Kelola User']] : [['visits','Kunjungan'],['stores','Kelola Toko'],['bbm','Klaim BBM']];
 
   var html = '<div class="screen">';
   if(S.editingVisit) html += editVisitModal(S.editingVisit);
@@ -1161,6 +1264,8 @@ function screenDashboard(){
     html += dailySummaryHTML(scoped);
   } else if(S.dashTab==='stores'){
     html += storesManagementHTML();
+  } else if(S.dashTab==='bbm'){
+    html += fuelClaimsManagementHTML();
   } else if(S.dashTab==='users' && role==='owner'){
     html += usersManagementHTML();
   }
@@ -1287,6 +1392,22 @@ function storesManagementHTML(){
         '<button data-action="resetStoreLocation" data-key="'+esc(key)+'" style="background:none;border:none;color:var(--danger);padding:4px;flex-shrink:0;" title="Reset lokasi">⟲</button>' +
       '</div></div>';
   });
+  return html;
+}
+
+function fuelClaimsManagementHTML(){
+  var scoped = S.fuelClaims.filter(function(c){ return isInRange(c.createdAt, S.dashFilter, S.dashStart, S.dashEnd); }).sort(function(a,b){ return new Date(b.createdAt)-new Date(a.createdAt); });
+  var total = scoped.reduce(function(s,c){ return s+(Number(c.nominal)||0); },0);
+  var totalLiter = scoped.reduce(function(s,c){ return s+(Number(c.liter)||0); },0);
+  var html = filterChipsHTML('dash', S.dashFilter, S.dashStart, S.dashEnd);
+  html += '<div class="grid2" style="margin:12px 0 16px;">' +
+    statCard('Total klaim', scoped.length) +
+    statCard('Total liter', totalLiter.toLocaleString('id-ID')+' L') +
+    statCard('Total nominal', rp(total)) +
+  '</div>';
+  if(!S.fuelClaimsLoaded){ html += '<p class="small muted">Memuat klaim BBM...</p>'; }
+  else if(scoped.length===0){ html += '<p class="small muted">Belum ada klaim BBM pada periode ini.</p>'; }
+  else { html += scoped.map(fuelClaimRowHTML).join(''); }
   return html;
 }
 
@@ -1462,12 +1583,21 @@ var Actions = {
     setState({session:null, screen:'login', errorMsg:'', salesTab:'home', checkinStage:'idle', dashTab:'visits', expandedSales:null, expandedVisit:null});
   },
 
-  setSalesTab: function(el){ setState({salesTab: el.getAttribute('data-val')}); },
+  setSalesTab: function(el){
+    var val = el.getAttribute('data-val');
+    setState({salesTab: val});
+    if(val==='bbm') Actions.reloadFuelClaims();
+  },
   switchScreen: function(el){ setState({screen: el.getAttribute('data-val')}); },
   setDashTab: function(el){
     var val = el.getAttribute('data-val');
     setState({dashTab: val});
     if(val==='stores') Actions.reloadStores();
+    if(val==='bbm') Actions.reloadFuelClaims();
+  },
+  reloadFuelClaims: function(){
+    loadFuelClaims().then(function(claims){ S.fuelClaims=claims; S.fuelClaimsLoaded=true; render(); })
+      .catch(function(e){ showToast('Gagal memuat klaim BBM: '+(e&&e.message?e.message:'terjadi kesalahan'), true); });
   },
 
   startCheckin: function(){
@@ -1628,6 +1758,66 @@ var Actions = {
     }
   },
   cancelPhotoMismatch: function(){ setState({busy:false, pendingCheckout:null, pendingPhotoSave:null, photoMismatchInfo:null}); },
+
+  openFuelForm: function(){ setState({fuelFormOpen:true, fuelPhoto:null, fuelDraftJenis:'', fuelDraftLiter:'', fuelDraftNominal:''}); },
+  closeFuelForm: function(){ setState({fuelFormOpen:false, fuelPhoto:null, fuelDraftJenis:'', fuelDraftLiter:'', fuelDraftNominal:''}); },
+  removeFuelPhoto: function(){ setState({fuelPhoto:null}); },
+  selectFuelPhoto: function(file){
+    if(!/^image\//.test(file.type)){ showToast('File yang dipilih bukan foto.', true); return; }
+    setState({fuelPhoto:{status:'processing'}});
+    compressImage(file).then(function(blob){
+      return blobToDataUrl(blob);
+    }).then(function(dataUrl){
+      return parseFuelReceipt(dataUrl).then(function(result){
+        setState({fuelPhoto:{status:'ready', dataUrl:dataUrl, readable:result.readable}, fuelDraftJenis:result.jenisBBM||'', fuelDraftLiter:(result.liter||0)||'', fuelDraftNominal:(result.nominal||0)||''});
+      }).catch(function(e){
+        reportClientError('selectFuelPhoto:parse', e);
+        setState({fuelPhoto:{status:'error', dataUrl:dataUrl, error:(e&&e.message)||'Gagal membaca struk otomatis, isi manual di bawah.'}});
+      });
+    }).catch(function(e){
+      console.error('gagal memproses foto struk', e);
+      reportClientError('selectFuelPhoto', e);
+      setState({fuelPhoto:{status:'error', error:(e&&e.message)||'Gagal memproses foto'}});
+    });
+  },
+  submitFuelClaim: function(){
+    syncFuelFormFromDOM();
+    if(!S.fuelPhoto || !S.fuelPhoto.dataUrl){
+      showToast('Foto struk BBM wajib dilampirkan.', true);
+      return;
+    }
+    var jenis = S.fuelDraftJenis || JENIS_BBM_OPTIONS[0];
+    var liter = Number(S.fuelDraftLiter)||0;
+    var nominal = Number(S.fuelDraftNominal)||0;
+    if(nominal <= 0){
+      showToast('Isi nominal yang dibayar.', true);
+      return;
+    }
+    setState({busy:true});
+    var claimId = uid();
+    var photo = S.fuelPhoto;
+    uploadFuelPhoto(claimId, photo.dataUrl).then(function(uploadResult){
+      if(!uploadResult || !uploadResult.url) throw new Error('Upload foto struk gagal (server tidak mengembalikan URL)');
+      var claim = {
+        id: claimId,
+        salesUsername: S.session.username,
+        salesName: S.session.name,
+        createdAt: new Date().toISOString(),
+        receiptPhotoUrl: uploadResult.url,
+        jenisBBM: jenis,
+        liter: liter,
+        nominal: nominal,
+        readable: photo.readable!==false
+      };
+      return upsertFuelClaim(claim);
+    }).then(function(){ return loadFuelClaims(); })
+      .then(function(claims){
+        S.fuelClaims = claims;
+        setState({busy:false, fuelClaimsLoaded:true, fuelFormOpen:false, fuelPhoto:null, fuelDraftJenis:'', fuelDraftLiter:'', fuelDraftNominal:''});
+        showToast('✓ Klaim BBM tersimpan.', false);
+      })
+      .catch(function(e){ setState({busy:false}); reportClientError('submitFuelClaim', e); alertSaveError(e); });
+  },
 
   openEditVisit: function(el){
     var checkin = el.getAttribute('data-checkin');
@@ -1931,6 +2121,14 @@ function syncOrderFormFromDOM(){
   if(paymentEl) S.orderPaymentDraft = paymentEl.value;
   if(notesEl) S.orderNotesDraft = notesEl.value;
 }
+function syncFuelFormFromDOM(){
+  var jenisEl = document.getElementById('fuelJenis');
+  var literEl = document.getElementById('fuelLiter');
+  var nominalEl = document.getElementById('fuelNominal');
+  if(jenisEl) S.fuelDraftJenis = jenisEl.value;
+  if(literEl) S.fuelDraftLiter = literEl.value;
+  if(nominalEl) S.fuelDraftNominal = nominalEl.value;
+}
 function syncEditOrderItemsFromDOM(){
   var fields = document.querySelectorAll('[data-editorder-field]');
   fields.forEach(function(f){
@@ -2131,6 +2329,11 @@ document.getElementById('app').addEventListener('change', function(e){
     var photoFile = e.target.files && e.target.files[0];
     e.target.value = '';
     if(photoFile) Actions.selectPaymentPhoto(photoFile);
+  }
+  if(e.target.id === 'fuelReceiptPhoto'){
+    var fuelPhotoFile = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if(fuelPhotoFile) Actions.selectFuelPhoto(fuelPhotoFile);
   }
 });
 document.getElementById('app').addEventListener('input', function(e){

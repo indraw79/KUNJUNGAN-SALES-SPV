@@ -17,6 +17,7 @@ export default async function handler(req, res) {
     }
     const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
     const visitId = body && body.visitId;
+    const folder = (body && body.folder) || 'payment-photos';
     const decoded = body && decodeDataUrl(body.imageBase64);
     if (!visitId || !decoded) {
       res.status(400).json({ error: 'visitId dan imageBase64 (data URL foto) wajib diisi' });
@@ -27,7 +28,7 @@ export default async function handler(req, res) {
       return;
     }
     const ext = decoded.contentType.split('/')[1] || 'jpg';
-    const blob = await put(`payment-photos/${visitId}-${Date.now()}.${ext}`, decoded.buffer, {
+    const blob = await put(`${folder}/${visitId}-${Date.now()}.${ext}`, decoded.buffer, {
       access: 'public',
       contentType: decoded.contentType,
     });
