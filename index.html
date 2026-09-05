@@ -674,7 +674,7 @@ var S = {
   outOfRadius:null,
   orderFormOpen:false, orderItems:[], orderNotes:'',
   orderPaymentDraft:'', orderNotesDraft:'',
-  paymentPhoto:null, pendingCheckout:null, photoMismatchInfo:null,
+  paymentPhoto:null, pendingCheckout:null, pendingPhotoSave:null, photoMismatchInfo:null,
   riwayatFilter:'week', riwayatStart:'', riwayatEnd:'',
   dashTab:'visits', dashFilter:'today', dashStart:'', dashEnd:'', expandedSales:null, expandedVisit:null,
   editingVisit:null, editOrderItems:[],
@@ -903,7 +903,7 @@ function screenSales(){
   var roleLabelTxt = isSupervisor ? 'Supervisor' : 'Sales';
   var html = '<div class="screen">';
   if(S.orderFormOpen && active) html += orderFormModal(active);
-  if(S.pendingCheckout) html += photoMismatchModal();
+  if(S.pendingCheckout || S.pendingPhotoSave) html += photoMismatchModal();
   html += '<div class="header">' +
     '<div class="row between" style="margin-bottom:20px;">' +
       '<div class="row gap8"><div style="width:32px;height:32px;border-radius:10px;background:rgba(255,255,255,.1);display:flex;align-items:center;justify-content:center;">👤</div><div><div style="font-weight:600;font-size:14px;">'+esc(S.session.name)+'</div><div class="xs mono" style="color:rgba(255,255,255,.5);">'+roleLabelTxt+' · @'+esc(S.session.username)+'</div></div></div>' +
@@ -970,7 +970,7 @@ function orderFormModal(active){
         '<div class="xs mono muted" style="text-align:right;margin-bottom:16px;">Total order: <b style="color:var(--primary);">'+rp(total)+'</b></div>' +
         '<label class="lbl">💰 Pembayaran nota diterima</label>' +
         '<input type="number" min="0" class="input mono" id="orderPayment" placeholder="0" value="'+esc(S.orderPaymentDraft||'')+'" style="margin-bottom:16px;">' +
-        paymentPhotoSectionHTML() +
+        paymentPhotoSectionHTML(active) +
         '<label class="lbl">Catatan (opsional)</label>' +
         '<textarea class="input" id="orderNotesInput" rows="2" placeholder="cth. toko tutup lebih awal, follow up minggu depan...">'+esc(S.orderNotesDraft||'')+'</textarea>' +
       '</div>' +
@@ -981,27 +981,37 @@ function orderFormModal(active){
     '</div></div>';
 }
 
-function paymentPhotoSectionHTML(){
+function paymentPhotoSectionHTML(active){
   var photo = S.paymentPhoto;
+  var saved = active && active.paymentPhotoUrl;
   var out = '<label class="lbl">📷 Foto bukti tanda terima (wajib jika ada pembayaran)</label>';
   if(photo && photo.status==='ready'){
-    out += '<div class="row gap8" style="margin-bottom:16px;align-items:center;">' +
+    out += '<div class="row gap8" style="margin-bottom:8px;align-items:center;">' +
       '<img src="'+photo.dataUrl+'" style="width:64px;height:64px;object-fit:cover;border-radius:10px;border:1px solid var(--border);flex-shrink:0;">' +
       '<div class="xs muted" style="flex:1;">Foto siap dilampirkan.</div>' +
-      '<button class="btn btn-outline btn-sm" data-action="removePaymentPhoto">Ganti foto</button>' +
-    '</div>';
+      '<button class="btn btn-outline btn-sm" data-action="removePaymentPhoto">Batal</button>' +
+    '</div>' +
+    '<button class="btn btn-outline btn-sm" style="width:100%;margin-bottom:16px;" data-action="savePaymentPhotoNow" '+(S.busy?'disabled':'')+'>💾 Simpan foto sekarang (checkout menyusul)</button>';
   } else {
+    if(saved){
+      out += '<div class="row gap8" style="margin-bottom:8px;align-items:center;">' +
+        '<img src="'+esc(active.paymentPhotoUrl)+'" style="width:64px;height:64px;object-fit:cover;border-radius:10px;border:1px solid var(--border);flex-shrink:0;">' +
+        '<div class="xs muted" style="flex:1;">✓ Foto sudah tersimpan. Checkout bisa dilakukan kapan saja.</div>' +
+      '</div>';
+    }
     if(photo && photo.status==='processing'){
       out += '<div class="xs muted" style="margin-bottom:8px;">⏳ Memproses foto...</div>';
     } else if(photo && photo.status==='error'){
       out += '<div class="xs" style="color:var(--danger);margin-bottom:8px;">⚠ '+esc(photo.error)+'</div>';
     }
+    if(saved) out += '<label class="xs muted" style="display:block;margin-bottom:4px;">Ganti foto (opsional):</label>';
     out += '<input type="file" accept="image/*" capture="environment" id="orderPaymentPhoto" style="margin-bottom:16px;">';
   }
   return out;
 }
 function photoMismatchModal(){
   var info = S.photoMismatchInfo || {};
+  var isSaveOnly = !!S.pendingPhotoSave;
   var reasons = [];
   if(info.timeMismatch) reasons.push(info.minutesOutside ? ('waktu foto '+info.minutesOutside+' menit di luar rentang waktu kunjungan') : 'waktu foto di luar rentang waktu kunjungan');
   if(info.distanceMismatch) reasons.push(info.distance!=null ? ('lokasi foto berjarak '+distLabel(info.distance)+' dari lokasi toko') : 'lokasi foto tidak dapat dideteksi');
@@ -1017,7 +1027,7 @@ function photoMismatchModal(){
       '</div>' +
       '<div class="sticky-bottom">' +
         '<button class="btn btn-outline" style="flex:1;" data-action="cancelPhotoMismatch">Batal</button>' +
-        '<button class="btn btn-danger" style="flex:1;" data-action="confirmPhotoMismatch" '+(S.busy?'disabled':'')+'>Tetap Simpan & Check-out</button>' +
+        '<button class="btn btn-danger" style="flex:1;" data-action="confirmPhotoMismatch" '+(S.busy?'disabled':'')+'>'+(isSaveOnly?'Tetap Simpan Foto':'Tetap Simpan & Check-out')+'</button>' +
       '</div>' +
     '</div></div>';
 }
@@ -1536,8 +1546,8 @@ var Actions = {
     finalizeCheckin(S.outOfRadius.pos, S.outOfRadius.storeName, {distanceMeters:S.outOfRadius.distance, outOfRadius:true, overrideReason:reason});
   },
 
-  openOrderForm: function(){ setState({orderFormOpen:true, orderItems:[{id:uid(), product:'', qty:1, price:0}], orderPaymentDraft:'', orderNotesDraft:'', paymentPhoto:null, pendingCheckout:null, photoMismatchInfo:null}); },
-  closeOrderForm: function(){ setState({orderFormOpen:false, orderPaymentDraft:'', orderNotesDraft:'', paymentPhoto:null, pendingCheckout:null, photoMismatchInfo:null}); },
+  openOrderForm: function(){ setState({orderFormOpen:true, orderItems:[{id:uid(), product:'', qty:1, price:0}], orderPaymentDraft:'', orderNotesDraft:'', paymentPhoto:null, pendingCheckout:null, pendingPhotoSave:null, photoMismatchInfo:null}); },
+  closeOrderForm: function(){ setState({orderFormOpen:false, orderPaymentDraft:'', orderNotesDraft:'', paymentPhoto:null, pendingCheckout:null, pendingPhotoSave:null, photoMismatchInfo:null}); },
   addOrderItem: function(){ syncOrderFormFromDOM(); S.orderItems.push({id:uid(), product:'', qty:1, price:0}); render(); },
   removeOrderItem: function(el){ syncOrderFormFromDOM(); var idx=Number(el.getAttribute('data-idx')); S.orderItems.splice(idx,1); render(); },
   selectPaymentPhoto: function(file){
@@ -1571,6 +1581,19 @@ var Actions = {
     });
   },
   removePaymentPhoto: function(){ setState({paymentPhoto:null}); },
+  savePaymentPhotoNow: function(){
+    if(!S.paymentPhoto || S.paymentPhoto.status !== 'ready') return;
+    var mv = myVisits();
+    var active = mv.filter(function(v){ return v.status==='active'; })[0];
+    if(!active) return;
+    setState({busy:true});
+    var mismatch = evaluatePhotoMismatch(S.paymentPhoto, active, new Date());
+    if(mismatch){
+      setState({busy:false, pendingPhotoSave:active, photoMismatchInfo:mismatch});
+      return;
+    }
+    persistPaymentPhoto(active, null);
+  },
   submitCheckout: function(){
     syncOrderItemsFromDOM();
     var paymentEl = document.getElementById('orderPayment');
@@ -1581,7 +1604,8 @@ var Actions = {
     var mv = myVisits();
     var active = mv.filter(function(v){ return v.status==='active'; })[0];
     if(!active) return;
-    if(payment > 0 && (!S.paymentPhoto || S.paymentPhoto.status !== 'ready')){
+    var photoAlreadySaved = !!active.paymentPhotoUrl;
+    if(payment > 0 && !photoAlreadySaved && (!S.paymentPhoto || S.paymentPhoto.status !== 'ready')){
       showToast('Ada pembayaran diterima — foto bukti tanda terima wajib dilampirkan.', true);
       return;
     }
@@ -1594,12 +1618,16 @@ var Actions = {
   confirmPhotoMismatch: function(){
     var reasonEl = document.getElementById('photoMismatchReason');
     var reason = reasonEl ? reasonEl.value.trim() : '';
-    if(!reason || !S.pendingCheckout) return;
+    if(!reason) return;
     setState({busy:true});
-    var pc = S.pendingCheckout;
-    finishCheckout(pc.active, pc.pos, pc.orders, pc.payment, pc.notes, reason);
+    if(S.pendingCheckout){
+      var pc = S.pendingCheckout;
+      finishCheckout(pc.active, pc.pos, pc.orders, pc.payment, pc.notes, reason);
+    } else if(S.pendingPhotoSave){
+      persistPaymentPhoto(S.pendingPhotoSave, reason);
+    }
   },
-  cancelPhotoMismatch: function(){ setState({busy:false, pendingCheckout:null, photoMismatchInfo:null}); },
+  cancelPhotoMismatch: function(){ setState({busy:false, pendingCheckout:null, pendingPhotoSave:null, photoMismatchInfo:null}); },
 
   openEditVisit: function(el){
     var checkin = el.getAttribute('data-checkin');
@@ -1990,7 +2018,7 @@ function finishCheckout(active, pos, orders, payment, notes, mismatchReason){
     // Jaring pengaman: pembayaran > 0 tidak boleh tersimpan tanpa foto bukti yang siap, lewat
     // jalur mana pun -- termasuk setelah layar "foto tidak sesuai". Sebelumnya foto bisa hilang
     // diam-diam di jalur konfirmasi mismatch dan checkout tetap tersimpan tanpa bukti.
-    if(payment > 0 && (!S.paymentPhoto || S.paymentPhoto.status !== 'ready')){
+    if(payment > 0 && !active.paymentPhotoUrl && (!S.paymentPhoto || S.paymentPhoto.status !== 'ready')){
       setState({busy:false, pendingCheckout:null, photoMismatchInfo:null});
       showToast('Foto bukti pembayaran belum siap / hilang. Lampirkan foto lagi sebelum check-out.', true);
       return;
@@ -2040,6 +2068,33 @@ function finishCheckout(active, pos, orders, payment, notes, mismatchReason){
     setState({busy:false});
     alertSaveError(e);
   }
+}
+
+// Simpan foto tanda terima ke kunjungan yang masih aktif TANPA check-out -- dipakai oleh
+// Actions.savePaymentPhotoNow (dan lanjutan konfirmasi mismatch-nya) supaya sales bisa mengamankan
+// bukti pembayaran segera setelah difoto, lalu check-out menyusul kapan saja (order/pembayaran bisa
+// diisi belakangan). Visit tetap 'active'; finishCheckout nanti otomatis ikut membawa field foto ini
+// lewat Object.assign({}, active, ...) tanpa upload ulang selama S.paymentPhoto sudah dikosongkan.
+function persistPaymentPhoto(active, mismatchReason){
+  var photo = S.paymentPhoto;
+  uploadPaymentPhoto(active.id, photo.dataUrl).then(function(uploadResult){
+    if(!uploadResult || !uploadResult.url) throw new Error('Upload foto gagal (server tidak mengembalikan URL)');
+    var updatedVisit = Object.assign({}, active, {
+      paymentPhotoUrl: uploadResult.url,
+      paymentPhotoTime: photo.photoTime,
+      paymentPhotoLat: photo.lat,
+      paymentPhotoLng: photo.lng,
+      paymentPhotoLocationSource: photo.locationSource,
+      paymentPhotoMismatch: !!mismatchReason,
+      paymentPhotoMismatchReason: mismatchReason || ''
+    });
+    return upsertVisit(updatedVisit);
+  }).then(function(){ return refreshVisitsSilent(); })
+    .then(function(){
+      setState({busy:false, paymentPhoto:null, pendingPhotoSave:null, photoMismatchInfo:null});
+      showToast('✓ Foto tersimpan. Lanjutkan isi order & check-out kapan saja.', false);
+    })
+    .catch(function(e){ setState({busy:false}); reportClientError('savePaymentPhotoNow', e, {visitId:active.id}); alertSaveError(e); });
 }
 
 function refreshVisitsSilent(){
