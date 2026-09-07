@@ -146,7 +146,14 @@ function loadDismissedDupes(){
   // Sama seperti loadStores() -- jangan fail-open ke {}, atau dismissDuplicatePair() bisa
   // menimpa sft-dismissed-dupes-v1 dan menghapus pasangan yang sudah pernah ditandai "toko
   // berbeda" (dampaknya ringan, cuma audit UI, tapi pola bugnya sama, sekalian dibenahi).
-  return withTimeout(apiGet(DISMISSED_DUPES_KEY)).then(function(v){ return v || {}; });
+  // Coba ulang 1x seperti loadStores() -- objek ini terus membesar (ratusan entri) sehingga
+  // apiGet-nya makin lama & rawan timeout di sinyal lemah; kalau gagal dan reloadStores()
+  // fail-open, SEMUA kasus yang pernah ditandai "Toko Berbeda" muncul lagi.
+  return withTimeout(apiGet(DISMISSED_DUPES_KEY)).then(function(v){ return v || {}; }).catch(function(){
+    return new Promise(function(r){ setTimeout(r, 1500); }).then(function(){
+      return withTimeout(apiGet(DISMISSED_DUPES_KEY)).then(function(v){ return v || {}; });
+    });
+  });
 }
 function saveDismissedDupes(d){ return withTimeout(apiSet(DISMISSED_DUPES_KEY, d)).catch(function(e){ console.error('gagal simpan dismissed dupes', e); throw e; }); }
 function loadCarriedDupes(){
@@ -154,7 +161,11 @@ function loadCarriedDupes(){
   // kelompok digabung ke toko lain -- supaya toko ketiga yang belum diputuskan (mis. C, saat A+B
   // digabung) tidak hilang begitu saja dari daftar peringatan. Sama seperti loadStores()/
   // loadDismissedDupes(), jangan fail-open ke {} kalau gagal muat, atau bisa menimpa data ini.
-  return withTimeout(apiGet(CARRIED_DUPES_KEY)).then(function(v){ return v || {}; });
+  return withTimeout(apiGet(CARRIED_DUPES_KEY)).then(function(v){ return v || {}; }).catch(function(){
+    return new Promise(function(r){ setTimeout(r, 1500); }).then(function(){
+      return withTimeout(apiGet(CARRIED_DUPES_KEY)).then(function(v){ return v || {}; });
+    });
+  });
 }
 function saveCarriedDupes(d){ return withTimeout(apiSet(CARRIED_DUPES_KEY, d)).catch(function(e){ console.error('gagal simpan carried dupes', e); throw e; }); }
 function dupePairKey(keyA, keyB){ return [keyA, keyB].sort().join('|'); }
@@ -1954,8 +1965,16 @@ var Actions = {
   refreshVisits: function(){ refreshVisitsSilent().then(function(){ render(); }); },
 
   reloadStores: function(){
-    Promise.all([loadStores(), loadDismissedDupes(), loadCarriedDupes()]).then(function(res){
-      S.storesCache=res[0]; S.dismissedDupes=res[1]; S.carriedDupes=res[2]; render();
+    // Kalau HANYA fetch dismissed/carried yang gagal (bukan stores), jangan buang state lama ke {}
+    // -- itu bikin semua kasus yang sudah ditandai "Toko Berbeda" muncul lagi. Pertahankan
+    // nilai terakhir yang diketahui untuk yang gagal, tetap render dengan data toko yang baru.
+    var keepDismissed = S.dismissedDupes || {}, keepCarried = S.carriedDupes || {};
+    Promise.all([
+      loadStores(),
+      loadDismissedDupes().catch(function(e){ reportClientError('reloadStores:dismissedDupes', e); return keepDismissed; }),
+      loadCarriedDupes().catch(function(e){ reportClientError('reloadStores:carriedDupes', e); return keepCarried; })
+    ]).then(function(res){
+      S.storesCache=res[0]; S.dismissedDupes=res[1]||{}; S.carriedDupes=res[2]||{}; render();
     }).catch(function(e){ showToast('Gagal memuat data toko: '+(e&&e.message?e.message:'terjadi kesalahan'), true); });
   },
   dismissDuplicatePair: function(el){
