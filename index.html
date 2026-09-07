@@ -1393,18 +1393,23 @@ function storesManagementHTML(){
           '</div>';
       } else {
         actionsHtml = '<div class="xs muted" style="margin:6px 0 4px;">Gabungkan pasangan tertentu:</div>' +
-          '<div class="row gap6" style="flex-wrap:wrap;margin-bottom:8px;">' +
+          '<div class="row gap6" style="flex-wrap:wrap;">' +
           c.pairs.map(function(p){
             return '<button class="btn btn-outline btn-sm" data-action="toggleMergePicker" data-pairkey="'+esc(p.pairKey)+'">'+esc(p.a.name)+' + '+esc(p.b.name)+'</button>';
           }).join('') +
-          '</div>' +
-          '<button class="btn btn-outline btn-sm" data-action="dismissDuplicateCluster" data-pairkeys="'+esc(JSON.stringify(allPairKeys))+'">Toko Berbeda (hilangkan semua peringatan kasus ini)</button>';
+          '</div>';
       }
+      // Tombol "Toko Berbeda" untuk kasus ini -- SELALU tampil (kecuali saat merge sedang jalan),
+      // supaya tidak ikut hilang ketika picker nama-merge sebuah pasangan sedang dibuka atau
+      // setelah salah satu pasangan digabung. Beroperasi pada semua pasangan di kasus ini.
+      var dismissBtn = isBusy ? '' :
+        '<div style="margin-top:8px;"><button class="btn btn-outline btn-sm" data-action="dismissDuplicateCluster" data-pairkeys="'+esc(JSON.stringify(allPairKeys))+'">Toko Berbeda (hilangkan semua peringatan kasus ini)</button></div>';
       html += '<div class="card2" style="margin-bottom:8px;padding:10px;'+(c.identical?'border:1px solid #C1502E;':'')+'">' +
         '<div class="xs" style="margin-bottom:6px;">'+(c.identical?'<b style="color:#C1502E;">🚨 ADA TITIK IDENTIK</b>':'<b>Jarak terdekat '+c.minDist+'m</b>')+' — '+c.keys.length+' nama toko berdekatan:</div>' +
         statsHtml +
         '<div style="margin:6px 0;">'+distHtml+'</div>' +
         actionsHtml +
+        dismissBtn +
       '</div>';
     });
     html += '</div>';
