@@ -724,7 +724,7 @@ var S = {
   mergePickerKey:null, mergeBusyKey:null,
   users:{}, resetKey:null, confirmReset:null,
   setupDraft:{},
-  fuelClaims:[], fuelClaimsLoaded:false, fuelFormOpen:false, fuelPhoto:null,
+  fuelClaims:[], fuelClaimsLoaded:false, fuelFormOpen:false, fuelPhoto:null, fuelAiResult:null,
   fuelDraftJenis:'', fuelDraftLiter:'', fuelDraftNominal:'',
   timerHandle:null
 };
@@ -904,13 +904,27 @@ function screenLocationCheck(){
 /* ---------------- SALES screen ---------------- */
 function myVisits(){ return S.visits.filter(function(v){ return v.salesName===S.session.name; }); }
 function myFuelClaims(){ return S.fuelClaims.filter(function(c){ return c.salesName===S.session.name; }).sort(function(a,b){ return new Date(b.createdAt)-new Date(a.createdAt); }); }
+function fuelReadBadge(c){
+  // Klaim lama (sebelum fitur readSource) -- pakai perilaku lama.
+  if(!c.readSource) return c.readable===false ? (' '+badge('⚠ struk kurang jelas','warn')) : '';
+  if(c.readSource==='ai') return ' '+badge('AI ✓','done');
+  if(c.readSource==='ai-corrected') return ' '+badge('✏️ dikoreksi','warn');
+  if(c.readSource==='manual') return ' '+badge('⌨️ manual','neutral');
+  return '';
+}
 function fuelClaimRowHTML(c){
+  var aiNote = '';
+  if(c.readSource==='ai-corrected' && c.aiRead){
+    var a = c.aiRead;
+    aiNote = '<div class="xs" style="color:var(--danger);margin-top:3px;">✏️ Sales mengubah angka AI &mdash; AI baca: '+esc(a.jenisBBM||'?')+' · '+(Number(a.liter)||0).toLocaleString('id-ID')+' L · '+rp(a.nominal)+'</div>';
+  }
   return '<div class="card2" style="margin-bottom:10px;padding:10px;">' +
     '<div class="row gap8" style="align-items:center;">' +
       '<a href="'+esc(c.receiptPhotoUrl)+'" target="_blank" rel="noreferrer"><img src="'+esc(c.receiptPhotoUrl)+'" style="width:56px;height:56px;object-fit:cover;border-radius:10px;border:1px solid var(--border);flex-shrink:0;"></a>' +
       '<div style="flex:1;min-width:0;">' +
         '<div class="row between"><span style="font-weight:600;font-size:13px;">'+esc(c.jenisBBM)+' · '+Number(c.liter||0).toLocaleString('id-ID')+' L</span><span class="mono" style="font-weight:700;color:var(--primary);font-size:13px;">'+rp(c.nominal)+'</span></div>' +
-        '<div class="xs muted mono">'+fmtDate(c.createdAt)+' '+fmtTime(c.createdAt)+(c.salesName ? (' · '+esc(c.salesName)) : '')+(c.readable===false?(' '+badge('⚠ struk kurang jelas','warn')):'')+'</div>' +
+        '<div class="xs muted mono">'+fmtDate(c.createdAt)+' '+fmtTime(c.createdAt)+(c.salesName ? (' · '+esc(c.salesName)) : '')+fuelReadBadge(c)+'</div>' +
+        aiNote +
       '</div>' +
     '</div>' +
   '</div>';
@@ -1754,9 +1768,9 @@ var Actions = {
   },
   cancelPhotoMismatch: function(){ setState({busy:false, pendingCheckout:null, pendingPhotoSave:null, photoMismatchInfo:null}); },
 
-  openFuelForm: function(){ setState({fuelFormOpen:true, fuelPhoto:null, fuelDraftJenis:'', fuelDraftLiter:'', fuelDraftNominal:''}); },
-  closeFuelForm: function(){ setState({fuelFormOpen:false, fuelPhoto:null, fuelDraftJenis:'', fuelDraftLiter:'', fuelDraftNominal:''}); },
-  removeFuelPhoto: function(){ setState({fuelPhoto:null}); },
+  openFuelForm: function(){ setState({fuelFormOpen:true, fuelPhoto:null, fuelAiResult:null, fuelDraftJenis:'', fuelDraftLiter:'', fuelDraftNominal:''}); },
+  closeFuelForm: function(){ setState({fuelFormOpen:false, fuelPhoto:null, fuelAiResult:null, fuelDraftJenis:'', fuelDraftLiter:'', fuelDraftNominal:''}); },
+  removeFuelPhoto: function(){ setState({fuelPhoto:null, fuelAiResult:null}); },
   selectFuelPhoto: function(file){
     if(!/^image\//.test(file.type)){ showToast('File yang dipilih bukan foto.', true); return; }
     setState({fuelPhoto:{status:'processing'}});
@@ -1773,15 +1787,19 @@ var Actions = {
           // Catat kasus "kurang jelas" (bukan cuma error/crash) supaya pola gagal baca kelihatan.
           reportClientError('selectFuelPhoto:strukKurangJelas', {message:'AI kurang yakin baca struk BBM -- readable='+result.readable+' jenis='+result.jenisBBM+' liter='+result.liter+' nominal='+result.nominal});
         }
-        setState({fuelPhoto:{status:'ready', dataUrl:dataUrl, readable:result.readable}, fuelDraftJenis:result.jenisBBM||'', fuelDraftLiter:(result.liter||0)||'', fuelDraftNominal:(result.nominal||0)||''});
+        setState({
+          fuelPhoto:{status:'ready', dataUrl:dataUrl, readable:result.readable},
+          fuelAiResult:{ok:true, readable:result.readable, jenisBBM:result.jenisBBM||'', liter:Number(result.liter)||0, nominal:Number(result.nominal)||0},
+          fuelDraftJenis:result.jenisBBM||'', fuelDraftLiter:(result.liter||0)||'', fuelDraftNominal:(result.nominal||0)||''
+        });
       }).catch(function(e){
         reportClientError('selectFuelPhoto:parse', e);
-        setState({fuelPhoto:{status:'error', dataUrl:dataUrl, error:(e&&e.message)||'Gagal membaca struk otomatis, isi manual di bawah.'}});
+        setState({fuelPhoto:{status:'error', dataUrl:dataUrl, error:(e&&e.message)||'Gagal membaca struk otomatis, isi manual di bawah.'}, fuelAiResult:{ok:false}});
       });
     }).catch(function(e){
       console.error('gagal memproses foto struk', e);
       reportClientError('selectFuelPhoto', e);
-      setState({fuelPhoto:{status:'error', error:(e&&e.message)||'Gagal memproses foto'}});
+      setState({fuelPhoto:{status:'error', error:(e&&e.message)||'Gagal memproses foto'}, fuelAiResult:{ok:false}});
     });
   },
   submitFuelClaim: function(){
@@ -1797,6 +1815,19 @@ var Actions = {
       showToast('Isi nominal yang dibayar.', true);
       return;
     }
+    // Rekam apa yang AI baca vs apa yang akhirnya disimpan sales, supaya supervisor bisa lihat
+    // klaim mana yang benar-benar dibaca AI, dan mana yang angkanya diubah/diketik manual.
+    var ai = S.fuelAiResult;
+    var aiOk = !!(ai && ai.ok);
+    var aiRead = aiOk ? {jenisBBM:ai.jenisBBM||'', liter:Number(ai.liter)||0, nominal:Number(ai.nominal)||0, readable:ai.readable!==false} : null;
+    var readSource;
+    if(!aiOk || (!(aiRead.liter>0) && !(aiRead.nominal>0))){
+      readSource = 'manual';
+    } else if(Math.abs(aiRead.liter-liter)<0.005 && aiRead.nominal===nominal && aiRead.jenisBBM===jenis){
+      readSource = 'ai';
+    } else {
+      readSource = 'ai-corrected';
+    }
     setState({busy:true});
     var claimId = uid();
     var photo = S.fuelPhoto;
@@ -1811,13 +1842,15 @@ var Actions = {
         jenisBBM: jenis,
         liter: liter,
         nominal: nominal,
-        readable: photo.readable!==false
+        readable: photo.readable!==false,
+        aiRead: aiRead,
+        readSource: readSource
       };
       return upsertFuelClaim(claim);
     }).then(function(){ return loadFuelClaims(); })
       .then(function(claims){
         S.fuelClaims = claims;
-        setState({busy:false, fuelClaimsLoaded:true, fuelFormOpen:false, fuelPhoto:null, fuelDraftJenis:'', fuelDraftLiter:'', fuelDraftNominal:''});
+        setState({busy:false, fuelClaimsLoaded:true, fuelFormOpen:false, fuelPhoto:null, fuelAiResult:null, fuelDraftJenis:'', fuelDraftLiter:'', fuelDraftNominal:''});
         showToast('✓ Klaim BBM tersimpan.', false);
       })
       .catch(function(e){ setState({busy:false}); reportClientError('submitFuelClaim', e); alertSaveError(e); });
