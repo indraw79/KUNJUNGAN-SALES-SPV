@@ -526,13 +526,22 @@ function uploadPaymentPhoto(visitId, dataUrl){
   }), 35000).catch(function(e){ console.error('gagal upload foto', e); throw e; });
 }
 var JENIS_BBM_OPTIONS = ['Pertalite', 'Pertamax', 'Pertamax Turbo', 'Solar', 'Dexlite', 'Lainnya'];
+var FUEL_PHOTO_TIPS = '<div class="xs muted" style="background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:8px 10px;margin-bottom:12px;line-height:1.5;">📸 Tips foto struk: taruh struk di alas rata &amp; terang, potret tegak lurus dari atas, penuhi layar dengan struk, hindari bayangan &amp; pantulan cahaya.</div>';
 function parseFuelReceipt(dataUrl){
-  return withTimeout(fetch('/api/parse-fuel-receipt', {
-    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({imageBase64:dataUrl})
-  }).then(function(res){
-    if(!res.ok) return res.json().catch(function(){ return {}; }).then(function(err){ throw new Error(err.error||('Gagal membaca struk (status '+res.status+')')); });
-    return res.json();
-  }), 35000).catch(function(e){ console.error('gagal baca struk BBM', e); throw e; });
+  function attempt(ms){
+    return withTimeout(fetch('/api/parse-fuel-receipt', {
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({imageBase64:dataUrl})
+    }).then(function(res){
+      if(!res.ok) return res.json().catch(function(){ return {}; }).then(function(err){ throw new Error(err.error||('Gagal membaca struk (status '+res.status+')')); });
+      return res.json();
+    }), ms);
+  }
+  // Satu kali coba-ulang otomatis -- cold start / 5xx sesaat / satu panggilan vision yang lambat
+  // itu wajar, dan coba-ulang jauh lebih baik daripada langsung melempar sales ke isi manual.
+  return attempt(35000).catch(function(e){
+    console.error('gagal baca struk BBM (percobaan 1), coba ulang sekali', e);
+    return attempt(30000);
+  }).catch(function(e){ console.error('gagal baca struk BBM', e); throw e; });
 }
 function uploadFuelPhoto(claimId, dataUrl){
   return withTimeout(fetch('/api/upload-photo', {
@@ -1101,15 +1110,21 @@ function fuelClaimFormModal(){
   } else if(photo.status==='processing'){
     photoSection = '<div class="xs muted" style="margin-bottom:16px;">⏳ Membaca struk dengan AI...</div>';
   } else if(photo.status==='error'){
-    photoSection = '<div class="xs" style="color:var(--danger);margin-bottom:8px;">⚠ '+esc(photo.error)+' — isi manual di bawah ini.</div>' +
-      '<div class="row gap8" style="margin-bottom:16px;align-items:center;">' +
-        '<img src="'+photo.dataUrl+'" style="width:56px;height:56px;object-fit:cover;border-radius:10px;border:1px solid var(--border);flex-shrink:0;">' +
-        '<button class="btn btn-outline btn-sm" data-action="removeFuelPhoto">Ganti foto</button>' +
-      '</div>';
+    // Preview besar (bukan thumbnail 56px) supaya sales bisa baca sendiri angkanya dari foto
+    // saat mengisi manual. Tidak pakai <a> zoom: navigasi ke data: URL diblokir sebagian browser.
+    photoSection = '<div class="xs" style="color:var(--danger);margin-bottom:8px;">⚠ '+esc(photo.error)+' — foto ulang, atau baca angkanya dari foto lalu isi manual di bawah.</div>' +
+      (photo.dataUrl ? '<img src="'+photo.dataUrl+'" style="display:block;width:100%;max-width:240px;height:auto;border-radius:10px;border:1px solid var(--border);margin-bottom:8px;">' : '') +
+      '<button class="btn btn-outline btn-sm" data-action="removeFuelPhoto" style="margin-bottom:12px;">Foto ulang</button>' +
+      FUEL_PHOTO_TIPS;
+  } else if(photo.readable===false){
+    photoSection = '<div class="xs" style="color:var(--danger);margin-bottom:8px;">⚠ Struk kurang jelas terbaca — periksa/isi angka di bawah, atau foto ulang.</div>' +
+      '<img src="'+photo.dataUrl+'" style="display:block;width:100%;max-width:240px;height:auto;border-radius:10px;border:1px solid var(--border);margin-bottom:8px;">' +
+      '<button class="btn btn-outline btn-sm" data-action="removeFuelPhoto" style="margin-bottom:12px;">Foto ulang</button>' +
+      FUEL_PHOTO_TIPS;
   } else {
     photoSection = '<div class="row gap8" style="margin-bottom:8px;align-items:center;">' +
         '<img src="'+photo.dataUrl+'" style="width:56px;height:56px;object-fit:cover;border-radius:10px;border:1px solid var(--border);flex-shrink:0;">' +
-        '<div class="xs muted" style="flex:1;">'+(photo.readable===false ? '⚠ Struk kurang jelas terbaca — periksa angka di bawah.' : '✓ Terbaca otomatis, periksa lagi sebelum simpan.')+'</div>' +
+        '<div class="xs muted" style="flex:1;">✓ Terbaca otomatis, periksa lagi sebelum simpan.</div>' +
         '<button class="btn btn-outline btn-sm" data-action="removeFuelPhoto">Ganti foto</button>' +
       '</div>';
   }
@@ -1745,10 +1760,19 @@ var Actions = {
   selectFuelPhoto: function(file){
     if(!/^image\//.test(file.type)){ showToast('File yang dipilih bukan foto.', true); return; }
     setState({fuelPhoto:{status:'processing'}});
-    compressImage(file).then(function(blob){
+    // Resolusi/kualitas lebih tinggi dari default compressImage() (1280px/0.7): angka di struk
+    // termal SPBU tipis & mudah pudar, di 1280px/0.7 sering blur sehingga AI tidak yakin membaca.
+    // Claude vision toh me-resize ke ~1568px, jadi 1600px/0.85 nyaris tanpa biaya tapi jauh lebih
+    // terbaca. Salinan yang sama dipakai untuk disimpan/upload (juga lebih enak dicek supervisor).
+    compressImage(file, 1600, 0.85).then(function(blob){
       return blobToDataUrl(blob);
     }).then(function(dataUrl){
       return parseFuelReceipt(dataUrl).then(function(result){
+        var lowConfidence = (result.readable===false) || (!(Number(result.liter)>0) && !(Number(result.nominal)>0));
+        if(lowConfidence){
+          // Catat kasus "kurang jelas" (bukan cuma error/crash) supaya pola gagal baca kelihatan.
+          reportClientError('selectFuelPhoto:strukKurangJelas', {message:'AI kurang yakin baca struk BBM -- readable='+result.readable+' jenis='+result.jenisBBM+' liter='+result.liter+' nominal='+result.nominal});
+        }
         setState({fuelPhoto:{status:'ready', dataUrl:dataUrl, readable:result.readable}, fuelDraftJenis:result.jenisBBM||'', fuelDraftLiter:(result.liter||0)||'', fuelDraftNominal:(result.nominal||0)||''});
       }).catch(function(e){
         reportClientError('selectFuelPhoto:parse', e);
