@@ -731,7 +731,7 @@ var S = {
   dashTab:'visits', dashFilter:'today', dashStart:'', dashEnd:'', expandedSales:null, expandedVisit:null,
   editingVisit:null, editOrderItems:[],
   manualEntryOpen:false, manualOrderItems:[],
-  storeRadiusDrafts:{}, dismissedDupes:{}, carriedDupes:{}, storeNameDraft:'', nearbyStores:[], storeSuggestionLoadFailed:false,
+  storeRadiusDrafts:{}, dismissedDupes:{}, carriedDupes:{}, storeSalesFilter:'', storeNameDraft:'', nearbyStores:[], storeSuggestionLoadFailed:false,
   mergePickerKey:null, mergeBusyKey:null,
   users:{}, resetKey:null, confirmReset:null,
   setupDraft:{},
@@ -1342,16 +1342,28 @@ function screenDashboard(){
   return html;
 }
 
+function storeCreatorLabel(st){ return (st && st.createdBy) ? st.createdBy : '(tanpa nama)'; }
 function storesManagementHTML(){
   var stores = S.storesCache || {};
-  var keys = Object.keys(stores).sort(function(a,b){ return stores[a].name.localeCompare(stores[b].name); });
+  var salesFilter = S.storeSalesFilter || '';
+  function passSales(k){ return !salesFilter || storeCreatorLabel(stores[k])===salesFilter; }
+  var creatorCounts = {};
+  Object.keys(stores).forEach(function(k){ var c = storeCreatorLabel(stores[k]); creatorCounts[c] = (creatorCounts[c]||0)+1; });
+  var creatorNames = Object.keys(creatorCounts).sort(function(a,b){ return a.localeCompare(b); });
+  var keys = Object.keys(stores).filter(passSales).sort(function(a,b){ return stores[a].name.localeCompare(stores[b].name); });
   var html = '<div class="row between" style="margin-bottom:8px;flex-wrap:wrap;gap:8px;">' +
     '<p class="xs muted" style="margin:0;flex:1;min-width:200px;">Lokasi & kecamatan/kota terdeteksi otomatis dari check-in pertama sales — bisa dikoreksi manual di bawah.</p>' +
     '<button data-action="reloadStores" style="background:none;border:none;color:var(--primary);padding:6px;flex-shrink:0;">⟳</button>' +
   '</div>';
   html += '<a href="/api/export-stores" class="btn btn-dark btn-sm" style="margin-bottom:14px;display:inline-flex;">⬇ Export Data Toko (Excel)</a>';
+  html += '<select class="input" id="storeSalesFilter" style="margin-bottom:10px;">' +
+    '<option value="">Semua sales ('+Object.keys(stores).length+' toko)</option>' +
+    creatorNames.map(function(name){ return '<option value="'+esc(name)+'"'+(salesFilter===name?' selected':'')+'>'+esc(name)+' ('+creatorCounts[name]+' toko)</option>'; }).join('') +
+  '</select>';
   html += '<input class="input" id="storeSearchInput" autocomplete="off" placeholder="🔍 Cari nama toko..." style="margin-bottom:14px;">';
+  if(salesFilter){ html += '<p class="xs muted" style="margin:-6px 0 12px;">Fokus sales <b>'+esc(salesFilter)+'</b> — '+keys.length+' toko. Peringatan duplikat & pola GPS di bawah juga disaring ke sales ini.</p>'; }
   var suspiciousReps = computeSuspiciousReps(stores);
+  if(salesFilter){ suspiciousReps = suspiciousReps.filter(function(r){ return r.creator===salesFilter; }); }
   if(suspiciousReps.length>0){
     html += '<div class="card" style="margin-bottom:16px;border:1px solid #C1502E;background:#C1502E12;">' +
       '<h4 class="xs" style="text-transform:uppercase;margin:0 0 8px;color:#C1502E;">🚨 Pola Titik GPS Mencurigakan Per Sales</h4>' +
@@ -1362,6 +1374,11 @@ function storesManagementHTML(){
     html += '</div>';
   }
   var dupeClusters = computeSuspectedDuplicateClusters(stores, S.dismissedDupes, S.carriedDupes);
+  if(salesFilter){
+    dupeClusters = dupeClusters.filter(function(c){
+      return c.keys.some(function(k){ return stores[k] && storeCreatorLabel(stores[k])===salesFilter; });
+    });
+  }
   if(dupeClusters.length>0){
     html += '<div class="card" style="margin-bottom:16px;border:1px solid #C1502E;">' +
       '<h4 class="xs" style="text-transform:uppercase;margin:0 0 8px;color:#C1502E;">⚠ Kemungkinan Toko Duplikat ('+dupeClusters.length+' kasus)</h4>' +
@@ -1414,7 +1431,7 @@ function storesManagementHTML(){
     });
     html += '</div>';
   }
-  if(keys.length===0){ html += '<p class="small muted">Belum ada toko terdaftar.</p>'; }
+  if(keys.length===0){ html += '<p class="small muted">'+(salesFilter?'Tidak ada toko dari sales ini (mungkin sudah digabung/dihapus).':'Belum ada toko terdaftar.')+'</p>'; }
   html += '<p id="storeSearchEmpty" class="small muted" style="display:none;">Tidak ada toko yang cocok dengan pencarian.</p>';
   keys.forEach(function(key){
     var store = stores[key];
@@ -1424,7 +1441,7 @@ function storesManagementHTML(){
     var kecLabel = store.kecamatan ? esc(store.kecamatan) : '<span style="color:var(--muted);">belum diketahui</span>';
     html += '<div class="card" style="margin-bottom:10px;" data-store-search="'+esc(store.name.toLowerCase())+'">' +
       '<div class="row between" style="margin-bottom:6px;"><span style="font-weight:600;font-size:14px;">'+esc(store.name)+'</span><a class="link mono" href="'+mapsLink+'" target="_blank" rel="noreferrer">lihat peta</a></div>' +
-      '<div class="xs muted" style="margin-bottom:8px;">📍 '+kecLabel+', '+kotaLabel+(store.accuracy!=null?(' · akurasi GPS saat daftar: ±'+Math.round(store.accuracy)+'m'):'')+'</div>' +
+      '<div class="xs muted" style="margin-bottom:8px;">📍 '+kecLabel+', '+kotaLabel+(store.accuracy!=null?(' · akurasi GPS saat daftar: ±'+Math.round(store.accuracy)+'m'):'')+' · dibuat oleh '+esc(storeCreatorLabel(store))+'</div>' +
       '<div class="row gap6" style="margin-bottom:8px;flex-wrap:wrap;">' +
         '<input class="input xs" style="flex:1;min-width:110px;padding:6px 8px;" id="kec_'+esc(key)+'" placeholder="Kecamatan" value="'+esc(store.kecamatan||'')+'">' +
         '<input class="input xs" style="flex:1;min-width:110px;padding:6px 8px;" id="kota_'+esc(key)+'" placeholder="Kota/Kabupaten" value="'+esc(store.kota||'')+'">' +
@@ -1969,6 +1986,7 @@ var Actions = {
   toggleSales: function(el){ var name=el.getAttribute('data-name'); setState({expandedSales: S.expandedSales===name?null:name}); },
   refreshVisits: function(){ refreshVisitsSilent().then(function(){ render(); }); },
 
+  setStoreSalesFilter: function(el){ setState({storeSalesFilter: el.value||''}); },
   reloadStores: function(){
     // Kalau HANYA fetch dismissed/carried yang gagal (bukan stores), jangan buang state lama ke {}
     // -- itu bikin semua kasus yang sudah ditandai "Toko Berbeda" muncul lagi. Pertahankan
@@ -2458,6 +2476,7 @@ document.getElementById('app').addEventListener('click', function(e){
 document.getElementById('app').addEventListener('change', function(e){
   var el = e.target.closest('[data-daterange-prefix]');
   if(el) Actions.setDateRange(el);
+  if(e.target.id === 'storeSalesFilter') Actions.setStoreSalesFilter(e.target);
   if(e.target.id === 'importUserFile'){
     var file = e.target.files && e.target.files[0];
     if(file) showToast('Memproses file "'+file.name+'"...', false);
