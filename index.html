@@ -590,11 +590,18 @@ function evaluatePhotoMismatch(photo, active, checkoutTime){
   if(photoMs < checkinMs - GRACE) minutesOutside = Math.round((checkinMs - photoMs)/60000);
   else if(photoMs > checkoutMs + GRACE) minutesOutside = Math.round((photoMs - checkoutMs)/60000);
   var timeMismatch = minutesOutside > 0;
-  // Jarak (tetap ketat 50 m): foto dibandingkan dengan lokasi TOKO (titik check-in), bukan
-  // lokasi check-out -- sales sering sudah berpindah saat menekan check-out.
+  // Jarak (ambang 50 m): foto dibandingkan dengan lokasi TOKO, bukan lokasi check-out (sales
+  // sering sudah berpindah saat menekan check-out). Titik acuannya: pin toko terdaftar DAN titik
+  // check-in -- pakai yang TERDEKAT. Titik check-in sendiri bisa meleset puluhan meter saat fix
+  // GPS-nya buruk (mis. akurasi 56 m), jadi sales yang jelas di toko tidak dihukum hanya karena
+  // check-in-nya kurang akurat, sementara foto yang benar-benar jauh (di rumah/desa lain) tetap
+  // ketahuan karena jauh dari KEDUA acuan.
   var distanceMismatch, distance = null;
-  if(photo.lat != null && photo.lng != null && active.checkinLat != null && active.checkinLng != null){
-    distance = haversineMeters(photo.lat, photo.lng, active.checkinLat, active.checkinLng);
+  var refPoints = [];
+  if(active.checkinLat != null && active.checkinLng != null) refPoints.push([active.checkinLat, active.checkinLng]);
+  if(active.storeLat != null && active.storeLng != null) refPoints.push([active.storeLat, active.storeLng]);
+  if(photo.lat != null && photo.lng != null && refPoints.length){
+    distance = Math.min.apply(null, refPoints.map(function(r){ return haversineMeters(photo.lat, photo.lng, r[0], r[1]); }));
     distanceMismatch = distance > DEFAULT_RADIUS;
   } else {
     distanceMismatch = true;
@@ -1684,15 +1691,15 @@ var Actions = {
           var distance = haversineMeters(pos.lat, pos.lng, store.lat, store.lng);
           var radius = store.radius || DEFAULT_RADIUS;
           if(distance > radius){
-            setState({busy:false, outOfRadius:{distance:distance, radius:radius, storeKey:key, pos:pos, storeName:store.name}, checkinStage:'outOfRadius'});
+            setState({busy:false, outOfRadius:{distance:distance, radius:radius, storeKey:key, pos:pos, storeName:store.name, storeLat:store.lat, storeLng:store.lng}, checkinStage:'outOfRadius'});
             return;
           }
-          finalizeCheckin(pos, store.name, {distanceMeters:distance, outOfRadius:false});
+          finalizeCheckin(pos, store.name, {distanceMeters:distance, outOfRadius:false, storeLat:store.lat, storeLng:store.lng});
         } else {
           var newStores = Object.assign({}, stores);
           newStores[key] = {name:storeName, lat:pos.lat, lng:pos.lng, accuracy:pos.accuracy, radius:DEFAULT_RADIUS, kecamatan:'', kota:'', createdBy:S.session.name, createdAt:new Date().toISOString()};
           saveStores(newStores).then(function(){
-            finalizeCheckin(pos, storeName, {distanceMeters:0, outOfRadius:false, isNewStore:true});
+            finalizeCheckin(pos, storeName, {distanceMeters:0, outOfRadius:false, isNewStore:true, storeLat:pos.lat, storeLng:pos.lng});
             // Deferred well after check-in completes so it never competes for resources at the critical moment.
             setTimeout(function(){
               try { geocodeStoreBestEffort(key, pos.lat, pos.lng); } catch(e){ console.warn('geocode skipped', e); }
@@ -1715,7 +1722,7 @@ var Actions = {
     var reason = reasonEl ? reasonEl.value.trim() : '';
     if(!reason || !S.outOfRadius) return;
     setState({busy:true});
-    finalizeCheckin(S.outOfRadius.pos, S.outOfRadius.storeName, {distanceMeters:S.outOfRadius.distance, outOfRadius:true, overrideReason:reason});
+    finalizeCheckin(S.outOfRadius.pos, S.outOfRadius.storeName, {distanceMeters:S.outOfRadius.distance, outOfRadius:true, overrideReason:reason, storeLat:S.outOfRadius.storeLat, storeLng:S.outOfRadius.storeLng});
   },
 
   openOrderForm: function(){ setState({orderFormOpen:true, orderItems:[{id:uid(), product:'', qty:1, price:0}], orderPaymentDraft:'', orderNotesDraft:'', paymentPhoto:null, pendingCheckout:null, pendingPhotoSave:null, photoMismatchInfo:null}); },
@@ -2328,6 +2335,7 @@ function finalizeCheckin(pos, storeName, meta){
     var newVisit = {
       id:uid(), salesName:S.session.name, storeName:storeName,
       checkinTime:new Date().toISOString(), checkinLat:pos.lat, checkinLng:pos.lng, checkinAccuracy:pos.accuracy,
+      storeLat: (meta.storeLat != null ? meta.storeLat : null), storeLng: (meta.storeLng != null ? meta.storeLng : null),
       checkinDistanceMeters: meta.distanceMeters, checkinOutOfRadius: !!meta.outOfRadius,
       checkinOverrideReason: meta.overrideReason||'', isNewStore: !!meta.isNewStore,
       checkoutTime:null, checkoutLat:null, checkoutLng:null,
