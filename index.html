@@ -738,7 +738,7 @@ var S = {
   dashTab:'visits', dashFilter:'today', dashStart:'', dashEnd:'', expandedSales:null, expandedVisit:null,
   editingVisit:null, editOrderItems:[],
   manualEntryOpen:false, manualOrderItems:[],
-  storeRadiusDrafts:{}, dismissedDupes:{}, carriedDupes:{}, storeSalesFilter:'', storeNameDraft:'', nearbyStores:[], storeSuggestionLoadFailed:false,
+  storeRadiusDrafts:{}, dismissedDupes:{}, carriedDupes:{}, storeSalesFilter:'', storeNameDraft:'', nearbyStores:[], storeSuggestionLoadFailed:false, nearbyStoreGpsFailed:false,
   mergePickerKey:null, mergeBusyKey:null,
   users:{}, resetKey:null, confirmReset:null,
   setupDraft:{},
@@ -977,7 +977,8 @@ function screenSales(){
     headerInner = '<label class="lbl" style="color:rgba(255,255,255,.7);">Nama toko</label>' +
       '<input class="input input-dark" id="storeNameInput" autocomplete="off" placeholder="cth. Toko Sumber Jaya" value="'+esc(S.storeNameDraft||'')+'">' +
       '<div id="storeSuggestionList"></div>' +
-      (S.storeSuggestionLoadFailed ? '<div class="xs" style="color:#F3C6A8;margin-top:8px;line-height:1.5;background:rgba(193,80,46,.15);border:1px solid rgba(193,80,46,.35);border-radius:10px;padding:10px 12px;">⚠ Gagal memuat daftar toko (sinyal lemah?). Saran toko mungkin belum lengkap — <button data-action="retryStoreSuggestions" style="background:none;border:none;color:#fff;text-decoration:underline;padding:0;font:inherit;">coba lagi</button> sebelum mengetik nama toko baru.</div>' : '') +
+      (S.storeSuggestionLoadFailed ? '<div class="xs" style="color:#F3C6A8;margin-top:8px;line-height:1.5;background:rgba(193,80,46,.15);border:1px solid rgba(193,80,46,.35);border-radius:10px;padding:10px 12px;">⚠ Gagal memuat daftar toko (sinyal lemah?). Saran toko mungkin belum lengkap — <button data-action="retryStoreSuggestions" style="background:none;border:none;color:#fff;text-decoration:underline;padding:0;font:inherit;">coba lagi</button> sebelum mengetik nama toko baru.</div>' :
+        (S.nearbyStoreGpsFailed ? '<div class="xs" style="color:#F3C6A8;margin-top:8px;line-height:1.5;background:rgba(193,80,46,.15);border:1px solid rgba(193,80,46,.35);border-radius:10px;padding:10px 12px;">⚠ Lokasi GPS lambat/tidak terdeteksi, saran "toko terdekat" tidak bisa ditampilkan otomatis — <button data-action="retryStoreSuggestions" style="background:none;border:none;color:#fff;text-decoration:underline;padding:0;font:inherit;">coba lagi</button>, atau langsung ketik nama tokonya di kotak di atas.</div>' : '')) +
       '<p class="xs" style="color:rgba(255,255,255,.4);margin:6px 0 0;">Toko baru akan mendaftarkan lokasi GPS saat ini sebagai titik acuan.</p>' +
       (S.gpsError ? '<div class="xs" style="color:#F3C6A8;margin-top:8px;line-height:1.5;background:rgba(193,80,46,.15);border:1px solid rgba(193,80,46,.35);border-radius:10px;padding:10px 12px;">⚠ '+esc(S.gpsError)+'</div>' : '') +
       '<div class="row gap8" style="margin-top:12px;">' +
@@ -1671,11 +1672,11 @@ var Actions = {
   },
 
   startCheckin: function(){
-    setState({checkinStage:'entering', gpsError:'', storeNameDraft:'', nearbyStores:[], storeSuggestionLoadFailed:false});
+    setState({checkinStage:'entering', gpsError:'', storeNameDraft:'', nearbyStores:[], storeSuggestionLoadFailed:false, nearbyStoreGpsFailed:false});
     loadCheckinSuggestions();
   },
   retryStoreSuggestions: function(){ loadCheckinSuggestions(); },
-  cancelCheckin: function(){ setState({checkinStage:'idle', outOfRadius:null, gpsError:'', storeNameDraft:'', nearbyStores:[], storeSuggestionLoadFailed:false}); },
+  cancelCheckin: function(){ setState({checkinStage:'idle', outOfRadius:null, gpsError:'', storeNameDraft:'', nearbyStores:[], storeSuggestionLoadFailed:false, nearbyStoreGpsFailed:false}); },
 
   attemptCheckin: function(){
     var storeInput = document.getElementById('storeNameInput');
@@ -2187,7 +2188,7 @@ function loadCheckinSuggestions(){
     var n = String(v.storeName||'').trim();
     if(n) names[n] = true;
   });
-  setState({storeNames: Object.keys(names).sort(), storeSuggestionLoadFailed:false});
+  setState({storeNames: Object.keys(names).sort(), storeSuggestionLoadFailed:false, nearbyStoreGpsFailed:false});
   var storesPromise = loadStores();
   var posPromise = getPosition();
   return storesPromise.then(function(stores){
@@ -2197,7 +2198,17 @@ function loadCheckinSuggestions(){
     });
     if(S.checkinStage==='entering') setState({storeNames: Object.keys(names).sort()});
     return posPromise.then(function(pos){
-      if(pos.error || S.checkinStage!=='entering') return;
+      if(S.checkinStage!=='entering') return;
+      if(pos.error){
+        // Sebelumnya di sini diam saja kalau GPS gagal/timeout -- daftar "toko terdekat" tetap
+        // kosong tanpa penjelasan apa pun ke sales (beda dari kegagalan loadStores() di atas, yang
+        // sudah punya banner+retry sejak fix sebelumnya). Sales tetap bisa mengetik nama toko
+        // (pencarian nama tidak butuh GPS), tapi tanpa pesan ini terlihat seperti "saran toko tidak
+        // muncul" padahal cuma saran-berbasis-lokasi yang gagal.
+        reportClientError('loadCheckinSuggestions:gps', pos.error);
+        setState({nearbyStoreGpsFailed:true});
+        return;
+      }
       var nearby = Object.keys(stores).map(function(k){
         var s = stores[k];
         if(s.lat==null || s.lng==null) return null;
