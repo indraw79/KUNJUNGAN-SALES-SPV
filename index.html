@@ -792,12 +792,17 @@ function dailySummaryHTML(visits){
   var maxPay=Math.max.apply(null, days.map(function(d){ return d[1].payment; }).concat([1]));
   var rows = days.map(function(d){
     var pct = Math.max(4,(d[1].payment/maxPay)*100);
-    return '<div class="row gap12" style="margin-bottom:9px;">' +
-      '<span class="xs mono muted" style="width:88px;flex-shrink:0;">'+esc(fmtDateShort(d[1].iso))+'</span>' +
-      '<div style="flex:1;height:6px;background:var(--chip-bg);border-radius:999px;overflow:hidden;"><div style="height:100%;background:var(--accent);border-radius:999px;width:'+pct+'%;"></div></div>' +
-      '<span class="xs mono" style="width:34px;text-align:right;flex-shrink:0;">'+d[1].count+'x</span>' +
-      '<span class="xs mono" style="width:90px;text-align:right;flex-shrink:0;color:#2F5B3B;">'+rp(d[1].payment)+'</span>' +
-      '</div>';
+    return '<div style="margin-bottom:12px;">' +
+      '<div class="row gap12" style="margin-bottom:4px;">' +
+        '<span class="xs mono muted" style="width:88px;flex-shrink:0;">'+esc(fmtDateShort(d[1].iso))+'</span>' +
+        '<div style="flex:1;height:6px;background:var(--chip-bg);border-radius:999px;overflow:hidden;"><div style="height:100%;background:var(--accent);border-radius:999px;width:'+pct+'%;"></div></div>' +
+        '<span class="xs mono" style="width:34px;text-align:right;flex-shrink:0;">'+d[1].count+'x</span>' +
+      '</div>' +
+      '<div class="row gap12" style="justify-content:flex-end;flex-wrap:wrap;">' +
+        '<span class="xs mono" style="color:var(--primary);">'+rp(d[1].order)+' <span class="muted" style="font-weight:400;">order</span></span>' +
+        '<span class="xs mono" style="color:#2F5B3B;">'+rp(d[1].payment)+' <span class="muted" style="font-weight:400;">bayar</span></span>' +
+      '</div>' +
+    '</div>';
   }).join('');
   return '<div class="card" style="margin-bottom:16px;"><h4 class="xs muted" style="text-transform:uppercase;letter-spacing:.03em;margin:0 0 12px;">Ringkasan harian</h4>'+rows+'</div>';
 }
