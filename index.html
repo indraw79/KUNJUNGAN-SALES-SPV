@@ -2564,8 +2564,13 @@ function enterApp(session){
   setState({session:session, busy:false, errorMsg:'', screen: session.role==='sales' ? 'sales' : 'dashboard'});
   refreshVisitsSilent().then(function(){ render(); });
   if(session.role!=='sales'){ loadStores().then(function(stores){ S.storesCache=stores; render(); }).catch(function(e){ console.warn('gagal muat data toko awal (tidak fatal, coba lagi via tab Kelola Toko)', e); }); }
-  var poll = setInterval(function(){
-    if(!S.session){ clearInterval(poll); return; }
+  // Hemat kuota database: tarik data tiap 30 detik, dan HANYA saat aplikasi sedang tampil di layar
+  // (tab/HP di latar belakang tidak menarik data). Saat dibuka lagi, langsung segarkan.
+  var lastPollAt = Date.now();
+  function pollTick(){
+    if(!S.session){ clearInterval(poll); document.removeEventListener('visibilitychange', onVisible); return; }
+    if(document.hidden) return;
+    lastPollAt = Date.now();
     refreshVisitsSilent().then(function(){
       if(S.dashTab==='users' || S.dashTab==='stores') return; // avoid disrupting file pickers / forms on these tabs
       if(S.checkinStage==='entering' || S.checkinStage==='outOfRadius') return; // avoid wiping the check-in form while typing
@@ -2575,7 +2580,10 @@ function enterApp(session){
       if(S.manualEntryOpen) return; // avoid wiping the manual entry form while filling it in
       render();
     });
-  }, 8000);
+  }
+  function onVisible(){ if(!document.hidden && Date.now()-lastPollAt > 15000) pollTick(); }
+  var poll = setInterval(pollTick, 30000);
+  document.addEventListener('visibilitychange', onVisible);
 }
 
 window.addEventListener('error', function(e){
