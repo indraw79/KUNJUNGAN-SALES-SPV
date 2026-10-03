@@ -4,6 +4,11 @@ const redis = Redis.fromEnv();
 const HASH_KEY = 'sft-visits-hash-v1';
 const LEGACY_KEY = 'sft-visits-v1'; // old single-array storage, kept only for one-time migration
 const MIGRATION_FLAG_KEY = 'sft-visits-migrated-v1';
+// Catatan perubahan (sorted set: skor = waktu simpan ms, member = id kunjungan) supaya aplikasi bisa
+// menarik HANYA kunjungan yang baru/berubah (GET ?since=...) alih-alih seluruh hash tiap polling --
+// seluruh hash sudah beberapa MB dan sempat menghabiskan kuota Upstash. Disimpan 2 hari saja.
+const CHANGES_KEY = 'sft-visits-changes-v1';
+const CHANGES_KEEP_MS = 2 * 24 * 60 * 60 * 1000;
 
 function parseVal(v) {
   if (v == null) return null;
@@ -80,13 +85,25 @@ export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store, max-age=0');
   try {
     if (req.method === 'GET') {
+      const serverTime = Date.now();
+      const since = Number(req.query && req.query.since);
+      if (since > 0 && serverTime - since < CHANGES_KEEP_MS) {
+        const ids = await redis.zrange(CHANGES_KEY, since, '+inf', { byScore: true });
+        let changed = [];
+        if (ids && ids.length > 0) {
+          const vals = await redis.hmget(HASH_KEY, ...ids);
+          changed = vals ? Object.values(vals).map(parseVal).filter(Boolean) : [];
+        }
+        res.status(200).json({ visits: changed, delta: true, serverTime: serverTime });
+        return;
+      }
       let all = await redis.hgetall(HASH_KEY);
       if (!all || Object.keys(all).length === 0) {
         await migrateFromLegacyIfNeeded();
         all = await redis.hgetall(HASH_KEY);
       }
       const visits = all ? Object.values(all).map(parseVal).filter(Boolean) : [];
-      res.status(200).json({ visits: visits });
+      res.status(200).json({ visits: visits, serverTime: serverTime });
       return;
     }
 
@@ -102,6 +119,9 @@ export default async function handler(req, res) {
       const field = {};
       field[visit.id] = JSON.stringify(visit);
       await redis.hset(HASH_KEY, field);
+      const now = Date.now();
+      await redis.zadd(CHANGES_KEY, { score: now, member: visit.id });
+      await redis.zremrangebyscore(CHANGES_KEY, 0, now - CHANGES_KEEP_MS);
 
       // Deteksi "baru pertama kali checkout dengan order/pembayaran" lewat transisi status
       // active->done, supaya edit kunjungan lama (submitEditVisit, sudah done sebelumnya) tidak
@@ -120,6 +140,7 @@ export default async function handler(req, res) {
 
     if (req.method === 'DELETE') {
       await redis.del(HASH_KEY);
+      await redis.del(CHANGES_KEY);
       await redis.set(MIGRATION_FLAG_KEY, '1');
       res.status(200).json({ ok: true });
       return;

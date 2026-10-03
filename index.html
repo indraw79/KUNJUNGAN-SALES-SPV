@@ -2476,8 +2476,34 @@ function persistPaymentPhoto(active, mismatchReason){
     .catch(function(e){ setState({busy:false}); reportClientError('savePaymentPhotoNow', e, {visitId:active.id}); alertSaveError(e); });
 }
 
+/* Sinkron kunjungan hemat kuota: tarik SELURUH data hanya saat pertama kali (atau kalau sinkron
+   terakhir sudah >30 menit lalu); selebihnya hanya minta kunjungan yang baru/berubah sejak sinkron
+   terakhir (GET /api/visits?since=...) lalu gabungkan ke S.visits berdasarkan id. */
+var visitsSync = {serverTime:0, localTime:0};
+function syncVisits(){
+  var bust = Date.now()+'-'+Math.random().toString(36).slice(2,8);
+  var canDelta = visitsSync.serverTime>0 && S.visits && S.visits.length>0 && (Date.now()-visitsSync.localTime) < 30*60*1000;
+  var url = '/api/visits?_='+bust + (canDelta ? '&since='+(visitsSync.serverTime-15000) : '');
+  return withTimeout(fetch(url, {cache:'no-store'}).then(function(res){
+    if(!res.ok) throw new Error('Gagal memuat data kunjungan (status '+res.status+')');
+    return res.json();
+  })).then(function(data){
+    var list = data.visits || [];
+    if(data.delta && canDelta){
+      var pos = {};
+      var merged = S.visits.slice();
+      for(var i=0;i<merged.length;i++) pos[merged[i].id] = i;
+      list.forEach(function(v){ if(pos[v.id]!=null) merged[pos[v.id]] = v; else { pos[v.id] = merged.length; merged.push(v); } });
+      S.visits = merged;
+    } else {
+      S.visits = list;
+    }
+    if(data.serverTime){ visitsSync.serverTime = data.serverTime; visitsSync.localTime = Date.now(); }
+    else { visitsSync.serverTime = 0; }
+  });
+}
 function refreshVisitsSilent(){
-  return loadVisits().then(function(v){ S.visits=v; }).catch(function(e){ console.error('gagal muat kunjungan', e); });
+  return syncVisits().catch(function(e){ console.error('gagal muat kunjungan', e); });
 }
 
 /* Safety net: report any error that reaches here uncaught (e.g. an exception thrown inside an
