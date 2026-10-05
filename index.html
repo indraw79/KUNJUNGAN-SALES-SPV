@@ -2167,6 +2167,7 @@ var Actions = {
     clearAllVisits().then(function(){
       setState({confirmReset: null});
       S.visits = [];
+      writeVisitsCache(null);
       showToast('✓ Data riwayat kunjungan berhasil dihapus.', false);
       render();
     }).catch(function(e){
@@ -2479,17 +2480,54 @@ function persistPaymentPhoto(active, mismatchReason){
 /* Sinkron kunjungan hemat kuota: tarik SELURUH data hanya saat pertama kali (atau kalau sinkron
    terakhir sudah >30 menit lalu); selebihnya hanya minta kunjungan yang baru/berubah sejak sinkron
    terakhir (GET /api/visits?since=...) lalu gabungkan ke S.visits berdasarkan id. */
-var visitsSync = {serverTime:0, localTime:0};
-function syncVisits(){
+var visitsSync = {serverTime:0, localTime:0, fullAt:0};
+/* Cache data kunjungan di perangkat (IndexedDB, bukan localStorage -- datanya sudah beberapa MB).
+   Tanpa ini, setiap refresh halaman mengunduh SELURUH riwayat kunjungan dari nol (Malang ~5MB,
+   4-5 detik) karena visitsSync hanya ada di memori. Dengan cache: refresh langsung tampil dari
+   data lokal lalu cukup tarik yang berubah (delta); tarik penuh tetap jalan di latar belakang
+   maksimal tiap 30 menit (supaya data yang dihapus manual di server ikut terbuang). */
+var visitsCacheDbPromise = null;
+function visitsCacheDb(){
+  if(!visitsCacheDbPromise){
+    visitsCacheDbPromise = new Promise(function(resolve, reject){
+      if(!window.indexedDB){ reject(new Error('IndexedDB tidak tersedia')); return; }
+      var req = indexedDB.open('sft-cache-v1', 1);
+      req.onupgradeneeded = function(){ req.result.createObjectStore('kv'); };
+      req.onsuccess = function(){ resolve(req.result); };
+      req.onerror = function(){ reject(req.error); };
+    });
+    visitsCacheDbPromise.catch(function(){ visitsCacheDbPromise = null; });
+  }
+  return visitsCacheDbPromise;
+}
+function readVisitsCache(){
+  return withTimeout(visitsCacheDb().then(function(db){
+    return new Promise(function(resolve, reject){
+      var r = db.transaction('kv','readonly').objectStore('kv').get('visits');
+      r.onsuccess = function(){ resolve(r.result || null); };
+      r.onerror = function(){ reject(r.error); };
+    });
+  }), 3000).catch(function(e){ console.warn('cache kunjungan tidak terbaca', e); return null; });
+}
+function writeVisitsCache(entry){
+  visitsCacheDb().then(function(db){
+    var store = db.transaction('kv','readwrite').objectStore('kv');
+    if(entry) store.put(entry, 'visits'); else store['delete']('visits');
+  }).catch(function(e){ console.warn('gagal simpan cache kunjungan', e); });
+}
+function syncVisits(preferDelta){
   var bust = Date.now()+'-'+Math.random().toString(36).slice(2,8);
-  var canDelta = visitsSync.serverTime>0 && S.visits && S.visits.length>0 && (Date.now()-visitsSync.localTime) < 30*60*1000;
+  var hasBase = visitsSync.serverTime>0 && S.visits && S.visits.length>0 && (Date.now()-visitsSync.localTime) < 47*60*60*1000;
+  var needFull = (Date.now()-visitsSync.fullAt) >= 30*60*1000;
+  var canDelta = hasBase && (preferDelta || !needFull);
   var url = '/api/visits?_='+bust + (canDelta ? '&since='+(visitsSync.serverTime-15000) : '');
   return withTimeout(fetch(url, {cache:'no-store'}).then(function(res){
     if(!res.ok) throw new Error('Gagal memuat data kunjungan (status '+res.status+')');
     return res.json();
   })).then(function(data){
     var list = data.visits || [];
-    if(data.delta && canDelta){
+    var isDelta = !!(data.delta && canDelta);
+    if(isDelta){
       var pos = {};
       var merged = S.visits.slice();
       for(var i=0;i<merged.length;i++) pos[merged[i].id] = i;
@@ -2497,13 +2535,17 @@ function syncVisits(){
       S.visits = merged;
     } else {
       S.visits = list;
+      visitsSync.fullAt = Date.now();
     }
     if(data.serverTime){ visitsSync.serverTime = data.serverTime; visitsSync.localTime = Date.now(); }
     else { visitsSync.serverTime = 0; }
+    if(!isDelta || list.length>0){
+      writeVisitsCache(data.serverTime ? {visits:S.visits, serverTime:visitsSync.serverTime, localTime:visitsSync.localTime, fullAt:visitsSync.fullAt} : null);
+    }
   });
 }
-function refreshVisitsSilent(){
-  return syncVisits().catch(function(e){ console.error('gagal muat kunjungan', e); });
+function refreshVisitsSilent(preferDelta){
+  return syncVisits(preferDelta).catch(function(e){ console.error('gagal muat kunjungan', e); });
 }
 
 /* Safety net: report any error that reaches here uncaught (e.g. an exception thrown inside an
@@ -2588,7 +2630,19 @@ function initAuth(){
 function enterApp(session){
   saveSessionLocal(session);
   setState({session:session, busy:false, errorMsg:'', screen: session.role==='sales' ? 'sales' : 'dashboard'});
-  refreshVisitsSilent().then(function(){ render(); });
+  // Tampilkan dulu data kunjungan dari cache perangkat (kalau ada) supaya refresh tidak menunggu
+  // unduhan penuh, lalu segarkan dengan delta. Tarik penuh (kalau sudah >30 menit) menyusul lewat
+  // polling berikutnya, yang sudah dijaga supaya tidak mengganggu form yang sedang diisi.
+  readVisitsCache().then(function(c){
+    if(S.session!==session) return;
+    var usable = !!(c && c.visits && c.visits.length>0 && c.serverTime>0 && !(S.visits && S.visits.length>0));
+    if(usable){
+      S.visits = c.visits;
+      visitsSync = {serverTime:c.serverTime, localTime:c.localTime||0, fullAt:c.fullAt||0};
+      render();
+    }
+    return refreshVisitsSilent(usable).then(function(){ if(S.session===session) render(); });
+  });
   if(session.role!=='sales'){ loadStores().then(function(stores){ S.storesCache=stores; render(); }).catch(function(e){ console.warn('gagal muat data toko awal (tidak fatal, coba lagi via tab Kelola Toko)', e); }); }
   // Hemat kuota database: tarik data tiap 30 detik, dan HANYA saat aplikasi sedang tampil di layar
   // (tab/HP di latar belakang tidak menarik data). Saat dibuka lagi, langsung segarkan.
