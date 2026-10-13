@@ -326,6 +326,32 @@ function durationLabel(m){ if(m==null) return '-'; var h=Math.floor(m/60), mm=Ma
 function distLabel(m){ return m<1000 ? (Math.round(m)+' m') : ((m/1000).toFixed(1)+' km'); }
 function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,8); }
 function orderTotalOf(v){ return (v.orders||[]).reduce(function(s,o){ return s+o.qty*o.price; },0); }
+
+// ---- Promo produk ----
+// Item order dihitung promo jika nama produknya cocok dengan `match` (menangkap juga ketikan bebas
+// seperti "timba cor tc 15", "tc15 oren") dan tanggal kunjungannya di dalam periode (tanggal lokal/WIB).
+var PROMOS = [
+  {id:'tc15-hiu-2026-10', name:'TC 15 Hiu Transparan', start:'2026-10-01', end:'2026-10-31', match:/tc\s*15/i}
+];
+function localDateStr(iso){ var d=new Date(iso); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function activePromos(){ var today=localDateStr(new Date().toISOString()); return PROMOS.filter(function(p){ return today>=p.start && today<=p.end; }); }
+function promoRowsOf(promo, visits){
+  var rows=[];
+  visits.forEach(function(v){
+    if(!v.checkinTime || !(v.orders||[]).length) return;
+    var d=localDateStr(v.checkinTime);
+    if(d<promo.start || d>promo.end) return;
+    v.orders.forEach(function(o){
+      if(promo.match.test(o.product||'')) rows.push({visit:v, date:d, sales:v.salesName, store:v.storeName, product:o.product, qty:Number(o.qty)||0, price:Number(o.price)||0, total:(Number(o.qty)||0)*(Number(o.price)||0)});
+    });
+  });
+  return rows.sort(function(a,b){ return new Date(a.visit.checkinTime)-new Date(b.visit.checkinTime); });
+}
+function promoSummary(rows){
+  var stores={}; rows.forEach(function(r){ stores[r.store.trim().toLowerCase()]=1; });
+  return {qty:rows.reduce(function(s,r){ return s+r.qty; },0), value:rows.reduce(function(s,r){ return s+r.total; },0), orders:rows.length, stores:Object.keys(stores).length};
+}
+function promoPeriodLabel(p){ return fmtDate(p.start+'T00:00:00')+' – '+fmtDate(p.end+'T00:00:00'); }
 function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
 function showToast(message, isError){
   var existing = document.getElementById('sft-toast');
@@ -1018,6 +1044,13 @@ function screenSales(){
       '<div class="card" style="text-align:center;padding:12px;"><div class="display" style="font-size:14px;color:var(--primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+rp(todayOrder)+'</div><div class="xs muted mono" style="text-transform:uppercase;margin-top:2px;">Order</div></div>' +
       '<div class="card" style="text-align:center;padding:12px;"><div class="display" style="font-size:14px;color:var(--primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+rp(todayPay)+'</div><div class="xs muted mono" style="text-transform:uppercase;margin-top:2px;">Terbayar</div></div>' +
     '</div>';
+    activePromos().forEach(function(p){
+      var ps = promoSummary(promoRowsOf(p, mv));
+      html += '<div class="p20" style="margin-bottom:20px;"><div class="card" style="padding:12px 14px;border:1.5px dashed var(--accent-dark);background:#FFF6EC;">' +
+        '<div class="xs mono" style="color:var(--accent-dark);font-weight:700;text-transform:uppercase;">🏷️ Promo '+esc(p.name)+' · s/d '+fmtDate(p.end+'T00:00:00')+'</div>' +
+        '<div style="margin-top:6px;font-size:14px;color:var(--primary);">Pencapaian kamu: <b>'+ps.qty.toLocaleString('id-ID')+' pcs</b> · <b>'+rp(ps.value)+'</b> · '+ps.stores+' toko</div>' +
+      '</div></div>';
+    });
     html += '<div class="p20" style="padding-bottom:40px;">';
     html += '<h3 class="xs muted" style="text-transform:uppercase;letter-spacing:.03em;margin:0 0 12px;">🗺 Rute hari ini</h3>';
     if(todays.length===0){ html += '<p class="small muted">Belum ada kunjungan hari ini.</p>'; }
@@ -1072,6 +1105,9 @@ function orderFormModal(active){
       '</div>' +
       '<div class="p20" style="padding:16px 20px;">' +
         '<div class="row between" style="margin-bottom:8px;"><label class="lbl" style="margin:0;">📦 Order hari ini</label><button class="link" style="border:none;background:none;font-weight:600;" data-action="addOrderItem">+ Tambah item</button></div>' +
+        activePromos().map(function(p){
+          return '<button data-action="addPromoItem" data-promo="'+esc(p.id)+'" style="width:100%;margin-bottom:8px;padding:9px 12px;border-radius:12px;border:1.5px dashed var(--accent-dark);background:#FFF6EC;color:var(--accent-dark);font-weight:700;font-size:13px;text-align:left;">🏷️ PROMO: '+esc(p.name)+' <span class="xs" style="font-weight:500;">— ketuk untuk menambah</span></button>';
+        }).join('') +
         rows +
         '<div class="xs mono muted" style="text-align:right;margin-bottom:16px;">Total order: <b style="color:var(--primary);">'+rp(total)+'</b></div>' +
         '<label class="lbl">💰 Pembayaran nota diterima</label>' +
@@ -1272,6 +1308,46 @@ function manualEntryModal(){
 }
 
 /* ---------------- DASHBOARD screen ---------------- */
+function promoManagementHTML(){
+  var html = '';
+  PROMOS.slice().reverse().forEach(function(promo){
+    var rows = promoRowsOf(promo, S.visits);
+    var sum = promoSummary(rows);
+    var isActive = activePromos().indexOf(promo)>=0;
+    html += '<div class="card" style="margin-bottom:16px;">' +
+      '<div class="row between" style="align-items:flex-start;gap:8px;margin-bottom:12px;">' +
+        '<div><div style="font-weight:700;font-size:16px;color:var(--primary);">🏷️ '+esc(promo.name)+'</div>' +
+        '<div class="xs muted mono" style="margin-top:2px;">'+promoPeriodLabel(promo)+' · '+(isActive?'<b style="color:var(--success);">AKTIF</b>':'selesai/belum mulai')+'</div></div>' +
+        '<button class="btn btn-dark btn-sm" data-action="exportPromo" data-promo="'+esc(promo.id)+'" '+(rows.length===0?'disabled':'')+'>⬇ Export CSV</button>' +
+      '</div>' +
+      '<div class="grid2" style="margin-bottom:12px;">' +
+        statCard('Qty terjual', sum.qty.toLocaleString('id-ID')+' pcs') +
+        statCard('Nilai', rp(sum.value)) +
+        statCard('Order', sum.orders) +
+        statCard('Toko', sum.stores) +
+      '</div>';
+    var view = S.promoView==='store' ? 'store' : 'sales';
+    html += '<div class="tabs" style="margin-bottom:8px;"><button class="tab-btn '+(view==='sales'?'active':'')+'" data-action="setPromoView" data-val="sales">Per sales</button><button class="tab-btn '+(view==='store'?'active':'')+'" data-action="setPromoView" data-val="store">Per toko</button></div>';
+    var groups = {};
+    rows.forEach(function(r){ var k = view==='sales' ? r.sales : r.store; (groups[k]=groups[k]||[]).push(r); });
+    var keys = Object.keys(groups).sort(function(a,b){ return promoSummary(groups[b]).qty - promoSummary(groups[a]).qty; });
+    if(keys.length===0){ html += '<p class="small muted">Belum ada order produk promo ini.</p>'; }
+    else {
+      html += '<table style="width:100%;border-collapse:collapse;font-size:13px;">' +
+        '<tr class="xs muted" style="text-align:left;"><th style="padding:6px 4px;">'+(view==='sales'?'Sales':'Toko')+'</th><th style="padding:6px 4px;text-align:right;">'+(view==='sales'?'Toko':'Order')+'</th><th style="padding:6px 4px;text-align:right;">Qty</th><th style="padding:6px 4px;text-align:right;">Nilai</th></tr>' +
+        keys.map(function(k){
+          var s = promoSummary(groups[k]);
+          var sub = view==='store' ? '<div class="xs muted">'+esc(groups[k].map(function(r){ return r.sales; }).filter(function(n,i,a){ return a.indexOf(n)===i; }).join(', '))+'</div>' : '';
+          return '<tr style="border-top:1px solid var(--border);"><td style="padding:6px 4px;">'+esc(k)+sub+'</td><td class="mono" style="padding:6px 4px;text-align:right;">'+(view==='sales'?s.stores:s.orders)+'</td><td class="mono" style="padding:6px 4px;text-align:right;">'+s.qty.toLocaleString('id-ID')+'</td><td class="mono" style="padding:6px 4px;text-align:right;">'+rp(s.value)+'</td></tr>';
+        }).join('') +
+        '</table>';
+    }
+    html += '<p class="xs muted" style="margin:10px 0 0;line-height:1.5;">Dihitung otomatis dari semua item order yang nama produknya mengandung "TC 15"/"TC15" di periode promo — termasuk yang diketik manual.</p>';
+    html += '</div>';
+  });
+  return html;
+}
+
 function screenDashboard(){
   var role = S.session.role;
   var scoped = S.visits.filter(function(v){ return isInRange(v.checkinTime, S.dashFilter, S.dashStart, S.dashEnd); });
@@ -1283,7 +1359,7 @@ function screenDashboard(){
   var totalPay = scoped.reduce(function(s,v){ return s+(v.payment||0); },0);
   var flagged = scoped.filter(function(v){ return v.checkinOutOfRadius; }).length;
 
-  var tabs = role==='owner' ? [['visits','Kunjungan'],['stores','Kelola Toko'],['bbm','Klaim BBM'],['users','Kelola User']] : [['visits','Kunjungan'],['stores','Kelola Toko'],['bbm','Klaim BBM']];
+  var tabs = role==='owner' ? [['visits','Kunjungan'],['stores','Kelola Toko'],['bbm','Klaim BBM'],['promo','🏷️ Promo'],['users','Kelola User']] : [['visits','Kunjungan'],['stores','Kelola Toko'],['bbm','Klaim BBM'],['promo','🏷️ Promo']];
 
   var html = '<div class="screen">';
   if(S.editingVisit) html += editVisitModal(S.editingVisit);
@@ -1320,6 +1396,8 @@ function screenDashboard(){
     html += storesManagementHTML();
   } else if(S.dashTab==='bbm'){
     html += fuelClaimsManagementHTML();
+  } else if(S.dashTab==='promo'){
+    html += promoManagementHTML();
   } else if(S.dashTab==='users' && role==='owner'){
     html += usersManagementHTML();
   }
@@ -1735,6 +1813,23 @@ var Actions = {
   closeOrderForm: function(){ setState({orderFormOpen:false, orderPaymentDraft:'', orderNotesDraft:'', paymentPhoto:null, pendingCheckout:null, pendingPhotoSave:null, photoMismatchInfo:null}); },
   addOrderItem: function(){ syncOrderFormFromDOM(); S.orderItems.push({id:uid(), product:'', qty:1, price:0}); render(); },
   removeOrderItem: function(el){ syncOrderFormFromDOM(); var idx=Number(el.getAttribute('data-idx')); S.orderItems.splice(idx,1); render(); },
+  addPromoItem: function(el){
+    syncOrderFormFromDOM();
+    var promo = PROMOS.filter(function(p){ return p.id===el.getAttribute('data-promo'); })[0];
+    if(!promo) return;
+    // Isi baris kosong terakhir kalau ada, supaya tidak menyisakan baris kosong
+    var last = S.orderItems[S.orderItems.length-1];
+    if(last && !String(last.product||'').trim()) last.product = promo.name;
+    else S.orderItems.push({id:uid(), product:promo.name, qty:1, price:0});
+    render();
+  },
+  setPromoView: function(el){ setState({promoView: el.getAttribute('data-val')}); },
+  exportPromo: function(el){
+    var promo = PROMOS.filter(function(p){ return p.id===el.getAttribute('data-promo'); })[0];
+    if(!promo) return;
+    var rows = promoRowsOf(promo, S.visits).map(function(r){ return [r.date, r.sales, r.store, r.product, r.qty, r.price, r.total]; });
+    downloadRowsAsCSV(['Tanggal','Sales','Toko','Produk (tertulis)','Qty','Harga','Nilai (Rp)'], rows, 'rekap-promo-'+promo.id+'-'+new Date().toISOString().slice(0,10)+'.csv');
+  },
   selectPaymentPhoto: function(file){
     if(!/^image\//.test(file.type)){ showToast('File yang dipilih bukan foto.', true); return; }
     setState({paymentPhoto:{status:'processing'}});
