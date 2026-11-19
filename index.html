@@ -655,6 +655,17 @@ function exportCSV(visits, filenamePrefix){
   });
   downloadRowsAsCSV(headers, rows, filenamePrefix+'-'+new Date().toISOString().slice(0,10)+'.csv');
 }
+function exportFuelCSV(claims, filenamePrefix){
+  var headers=['Tanggal','Jam','Sales','Jenis BBM','Liter','Nominal (Rp)','Sumber Angka','Link Foto Struk'];
+  var srcLabel = {'ai':'Dibaca AI','ai-corrected':'AI dikoreksi sales','manual':'Diisi manual'};
+  var rows = claims.slice().sort(function(a,b){ return new Date(a.createdAt)-new Date(b.createdAt); }).map(function(c){
+    return [
+      fmtDate(c.createdAt), fmtTime(c.createdAt), c.salesName||'', c.jenisBBM||'', (Number(c.liter)||0).toLocaleString('id-ID'), Number(c.nominal)||0,
+      srcLabel[c.readSource]||'', c.receiptPhotoUrl||''
+    ];
+  });
+  downloadRowsAsCSV(headers, rows, filenamePrefix+'-'+new Date().toISOString().slice(0,10)+'.csv');
+}
 function csvEscapeField(val){ var s=String(val==null?'':val); return /[",\n]/.test(s) ? ('"'+s.replace(/"/g,'""')+'"') : s; }
 function downloadRowsAsCSV(headers, rows, filename){
   var csv = [headers].concat(rows).map(function(r){ return r.map(csvEscapeField).join(','); }).join('\r\n');
@@ -1077,6 +1088,7 @@ function screenSales(){
     html += '<div class="p20" style="padding-top:20px;padding-bottom:40px;">';
     html += '<button class="btn btn-accent" style="width:100%;margin-bottom:16px;" data-action="openFuelForm">⛽ Klaim BBM Baru</button>';
     if(myFuel.length>0){ html += '<p class="xs muted" style="margin:0 0 12px;">Total klaim: <b style="color:var(--primary);">'+rp(fuelTotal)+'</b> ('+myFuel.length+' klaim)</p>'; }
+    if(myFuel.length>0){ html += '<button class="btn btn-dark btn-sm" style="margin:0 0 16px;" data-action="exportFuelMine">⬇ Export CSV ('+myFuel.length+' klaim BBM)</button>'; }
     if(!S.fuelClaimsLoaded){ html += '<p class="small muted">Memuat klaim BBM...</p>'; }
     else if(myFuel.length===0){ html += '<p class="small muted">Belum ada klaim BBM.</p>'; }
     else { html += myFuel.map(fuelClaimRowHTML).join(''); }
@@ -1549,6 +1561,10 @@ function storesManagementHTML(){
   return html;
 }
 
+function scopedFuelClaims(){
+  var salesFilter = S.fuelSalesFilter || '';
+  return S.fuelClaims.filter(function(c){ return isInRange(c.createdAt, S.dashFilter, S.dashStart, S.dashEnd) && (!salesFilter || (c.salesName || '(tanpa nama)')===salesFilter); });
+}
 function fuelClaimsManagementHTML(){
   var inPeriod = S.fuelClaims.filter(function(c){ return isInRange(c.createdAt, S.dashFilter, S.dashStart, S.dashEnd); });
   var salesFilter = S.fuelSalesFilter || '';
@@ -1556,7 +1572,7 @@ function fuelClaimsManagementHTML(){
   inPeriod.forEach(function(c){ var n = c.salesName || '(tanpa nama)'; salesCounts[n] = (salesCounts[n]||0)+1; });
   if(salesFilter && !salesCounts[salesFilter]) salesCounts[salesFilter] = 0;
   var salesNames = Object.keys(salesCounts).sort(function(a,b){ return a.localeCompare(b); });
-  var scoped = inPeriod.filter(function(c){ return !salesFilter || (c.salesName || '(tanpa nama)')===salesFilter; }).sort(function(a,b){ return new Date(b.createdAt)-new Date(a.createdAt); });
+  var scoped = scopedFuelClaims().sort(function(a,b){ return new Date(b.createdAt)-new Date(a.createdAt); });
   var total = scoped.reduce(function(s,c){ return s+(Number(c.nominal)||0); },0);
   var totalLiter = scoped.reduce(function(s,c){ return s+(Number(c.liter)||0); },0);
   var html = filterChipsHTML('dash', S.dashFilter, S.dashStart, S.dashEnd);
@@ -1569,6 +1585,7 @@ function fuelClaimsManagementHTML(){
     statCard('Total liter', totalLiter.toLocaleString('id-ID')+' L') +
     statCard('Total nominal', rp(total)) +
   '</div>';
+  html += '<button class="btn btn-dark btn-sm" style="margin:0 0 16px;" data-action="exportFuelDash" '+(scoped.length===0?'disabled':'')+'>⬇ Export CSV ('+scoped.length+' klaim BBM)</button>';
   if(!S.fuelClaimsLoaded){ html += '<p class="small muted">Memuat klaim BBM...</p>'; }
   else if(scoped.length===0){ html += '<p class="small muted">'+(salesFilter?'Belum ada klaim BBM dari sales ini pada periode ini.':'Belum ada klaim BBM pada periode ini.')+'</p>'; }
   else { html += scoped.map(fuelClaimRowHTML).join(''); }
@@ -2095,6 +2112,13 @@ var Actions = {
     var mv = myVisits();
     var riwayat = mv.filter(function(v){ return v.status==='done' && isInRange(v.checkinTime, S.riwayatFilter, S.riwayatStart, S.riwayatEnd); });
     exportCSV(riwayat, 'riwayat-'+S.session.name.replace(/\s+/g,'-').toLowerCase());
+  },
+  exportFuelDash: function(){
+    var name = S.fuelSalesFilter ? ('-'+S.fuelSalesFilter.replace(/\s+/g,'-').toLowerCase()) : '';
+    exportFuelCSV(scopedFuelClaims(), 'klaim-bbm'+name);
+  },
+  exportFuelMine: function(){
+    exportFuelCSV(myFuelClaims(), 'klaim-bbm-'+S.session.name.replace(/\s+/g,'-').toLowerCase());
   },
   exportDash: function(){
     var scoped = S.visits.filter(function(v){ return isInRange(v.checkinTime, S.dashFilter, S.dashStart, S.dashEnd); });
