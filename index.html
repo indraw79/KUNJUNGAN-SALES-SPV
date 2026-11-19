@@ -764,7 +764,7 @@ var S = {
   dashTab:'visits', dashFilter:'today', dashStart:'', dashEnd:'', expandedSales:null, expandedVisit:null,
   editingVisit:null, editOrderItems:[],
   manualEntryOpen:false, manualOrderItems:[],
-  storeRadiusDrafts:{}, dismissedDupes:{}, carriedDupes:{}, storeSalesFilter:'', storeNameDraft:'', nearbyStores:[], storeSuggestionLoadFailed:false, nearbyStoreGpsFailed:false,
+  storeRadiusDrafts:{}, dismissedDupes:{}, carriedDupes:{}, storeSalesFilter:'', fuelSalesFilter:'', storeNameDraft:'', nearbyStores:[], storeSuggestionLoadFailed:false, nearbyStoreGpsFailed:false,
   mergePickerKey:null, mergeBusyKey:null,
   users:{}, resetKey:null, confirmReset:null,
   setupDraft:{},
@@ -1550,17 +1550,27 @@ function storesManagementHTML(){
 }
 
 function fuelClaimsManagementHTML(){
-  var scoped = S.fuelClaims.filter(function(c){ return isInRange(c.createdAt, S.dashFilter, S.dashStart, S.dashEnd); }).sort(function(a,b){ return new Date(b.createdAt)-new Date(a.createdAt); });
+  var inPeriod = S.fuelClaims.filter(function(c){ return isInRange(c.createdAt, S.dashFilter, S.dashStart, S.dashEnd); });
+  var salesFilter = S.fuelSalesFilter || '';
+  var salesCounts = {};
+  inPeriod.forEach(function(c){ var n = c.salesName || '(tanpa nama)'; salesCounts[n] = (salesCounts[n]||0)+1; });
+  if(salesFilter && !salesCounts[salesFilter]) salesCounts[salesFilter] = 0;
+  var salesNames = Object.keys(salesCounts).sort(function(a,b){ return a.localeCompare(b); });
+  var scoped = inPeriod.filter(function(c){ return !salesFilter || (c.salesName || '(tanpa nama)')===salesFilter; }).sort(function(a,b){ return new Date(b.createdAt)-new Date(a.createdAt); });
   var total = scoped.reduce(function(s,c){ return s+(Number(c.nominal)||0); },0);
   var totalLiter = scoped.reduce(function(s,c){ return s+(Number(c.liter)||0); },0);
   var html = filterChipsHTML('dash', S.dashFilter, S.dashStart, S.dashEnd);
+  html += '<select class="input" id="fuelSalesFilter" style="margin-top:12px;">' +
+    '<option value="">Semua sales ('+inPeriod.length+' klaim)</option>' +
+    salesNames.map(function(name){ return '<option value="'+esc(name)+'"'+(salesFilter===name?' selected':'')+'>'+esc(name)+' ('+salesCounts[name]+' klaim)</option>'; }).join('') +
+  '</select>';
   html += '<div class="grid2" style="margin:12px 0 16px;">' +
     statCard('Total klaim', scoped.length) +
     statCard('Total liter', totalLiter.toLocaleString('id-ID')+' L') +
     statCard('Total nominal', rp(total)) +
   '</div>';
   if(!S.fuelClaimsLoaded){ html += '<p class="small muted">Memuat klaim BBM...</p>'; }
-  else if(scoped.length===0){ html += '<p class="small muted">Belum ada klaim BBM pada periode ini.</p>'; }
+  else if(scoped.length===0){ html += '<p class="small muted">'+(salesFilter?'Belum ada klaim BBM dari sales ini pada periode ini.':'Belum ada klaim BBM pada periode ini.')+'</p>'; }
   else { html += scoped.map(fuelClaimRowHTML).join(''); }
   return html;
 }
@@ -2095,6 +2105,7 @@ var Actions = {
   refreshVisits: function(){ refreshVisitsSilent().then(function(){ render(); }); },
 
   setStoreSalesFilter: function(el){ setState({storeSalesFilter: el.value||''}); },
+  setFuelSalesFilter: function(el){ setState({fuelSalesFilter: el.value||''}); },
   reloadStores: function(){
     // Kalau HANYA fetch dismissed/carried yang gagal (bukan stores), jangan buang state lama ke {}
     // -- itu bikin semua kasus yang sudah ditandai "Toko Berbeda" muncul lagi. Pertahankan
@@ -2664,6 +2675,7 @@ document.getElementById('app').addEventListener('change', function(e){
   var el = e.target.closest('[data-daterange-prefix]');
   if(el) Actions.setDateRange(el);
   if(e.target.id === 'storeSalesFilter') Actions.setStoreSalesFilter(e.target);
+  if(e.target.id === 'fuelSalesFilter') Actions.setFuelSalesFilter(e.target);
   if(e.target.id === 'importUserFile'){
     var file = e.target.files && e.target.files[0];
     if(file) showToast('Memproses file "'+file.name+'"...', false);
